@@ -115,10 +115,6 @@ TShock 的 SSC 人物数据保存在 `tshock.sqlite` 的 `tsCharacter` 表中。
 /exportplr 12
 ```
 
-### 导出的文件无法在客户端看到
-
-确认文件扩展名是 `.plr`，并将它放到 Terraria 客户端的 Players 目录。不同平台的 Players 目录位置不同。
-
 ### 批量导出失败一部分账号
 
 命令会继续导出其他账号，并在结果中显示失败数量。详细异常会写入 TShock 日志，搜索 `[TShockPlrExporter]`。
