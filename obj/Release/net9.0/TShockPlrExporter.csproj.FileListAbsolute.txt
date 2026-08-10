@@ -1,0 +1,13 @@
+C:\Users\13809\Desktop\TR\obj\Release\net9.0\TShockPlrExporter.csproj.AssemblyReference.cache
+C:\Users\13809\Desktop\TR\obj\Release\net9.0\TShockPlrExporter.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\13809\Desktop\TR\obj\Release\net9.0\TShockPlrExporter.AssemblyInfoInputs.cache
+C:\Users\13809\Desktop\TR\obj\Release\net9.0\TShockPlrExporter.AssemblyInfo.cs
+C:\Users\13809\Desktop\TR\obj\Release\net9.0\TShockPlrExporter.csproj.CoreCompileInputs.cache
+C:\Users\13809\Desktop\TR\bin\Release\net9.0\HttpServer.dll
+C:\Users\13809\Desktop\TR\bin\Release\net9.0\TShockPlrExporter.deps.json
+C:\Users\13809\Desktop\TR\bin\Release\net9.0\TShockPlrExporter.dll
+C:\Users\13809\Desktop\TR\bin\Release\net9.0\TShockPlrExporter.pdb
+C:\Users\13809\Desktop\TR\obj\Release\net9.0\TShockPlrExporter.dll
+C:\Users\13809\Desktop\TR\obj\Release\net9.0\refint\TShockPlrExporter.dll
+C:\Users\13809\Desktop\TR\obj\Release\net9.0\TShockPlrExporter.pdb
+C:\Users\13809\Desktop\TR\obj\Release\net9.0\ref\TShockPlrExporter.dll
