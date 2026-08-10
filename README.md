@@ -73,22 +73,6 @@ Export complete: 1 succeeded, 0 failed. Output: /path/to/server/tshock/PlayerExp
 4. 给管理员组添加 `plrexporter.export` 权限。
 5. 在服务器控制台或游戏内执行 `/exportplr` 命令。
 
-## 编译
-
-需要安装 .NET 9 SDK。
-
-在项目目录执行：
-
-```powershell
-dotnet build -c Release
-```
-
-编译产物位于：
-
-```text
-bin/Release/net9.0/TShockPlrExporter.dll
-```
-
 ## 工作原理
 
 TShock 的 SSC 人物数据保存在 `tshock.sqlite` 的 `tsCharacter` 表中。插件会读取账号表 `Users` 与人物表 `tsCharacter`，将数据库中的生命、魔力、外观、背包、护甲、染料、银行、虚空袋、Loadout 等字段还原到 `Terraria.Player` 对象中，然后调用 Terraria 自带的 `.plr` 保存逻辑生成文件。
