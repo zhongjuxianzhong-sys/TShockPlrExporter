@@ -13,8 +13,8 @@ public sealed class Plugin : TerrariaPlugin
     private Command? exportCommand;
 
     public override string Name => "TShockPlrExporter";
-    public override string Author => "Codex";
-    public override string Description => "Exports TShock server-side character data to Terraria .plr files.";
+    public override string Author => "TShockPlrExporter Contributors";
+    public override string Description => "将 TShock 的 SSC 人物数据导出为 Terraria .plr 文件。";
     public override Version Version => new(1, 0, 0);
 
     public Plugin(Main game) : base(game)
@@ -25,7 +25,7 @@ public sealed class Plugin : TerrariaPlugin
     {
         exportCommand = new Command("plrexporter.export", ExportCommand, "exportplr")
         {
-            HelpText = "Exports TShock server-side characters to .plr files. Usage: /exportplr <accountName|accountId|all>"
+            HelpText = "导出 SSC 人物存档：/exportplr <账号名|账号 ID|all>"
         };
 
         Commands.ChatCommands.Add(exportCommand);
@@ -49,7 +49,7 @@ public sealed class Plugin : TerrariaPlugin
     {
         if (args.Parameters.Count != 1)
         {
-            args.Player.SendErrorMessage("Usage: /exportplr <accountName|accountId|all>");
+            args.Player.SendErrorMessage("用法：/exportplr <账号名|账号 ID|all>");
             return;
         }
 
@@ -62,7 +62,7 @@ public sealed class Plugin : TerrariaPlugin
 
             if (!File.Exists(databasePath))
             {
-                args.Player.SendErrorMessage($"Database not found: {databasePath}");
+                args.Player.SendErrorMessage($"未找到数据库文件：{databasePath}");
                 return;
             }
 
@@ -75,7 +75,7 @@ public sealed class Plugin : TerrariaPlugin
 
             if (accounts.Count == 0)
             {
-                args.Player.SendErrorMessage($"No account with character data matched '{target}'.");
+                args.Player.SendErrorMessage($"未找到与“{target}”匹配且有 SSC 人物数据的账号。");
                 return;
             }
 
@@ -87,17 +87,17 @@ public sealed class Plugin : TerrariaPlugin
                 {
                     string path = exporter.Export(connection, account, exportPath);
                     success++;
-                    args.Player.SendSuccessMessage($"Exported {account.Name} -> {Path.GetFileName(path)}");
+                    args.Player.SendSuccessMessage($"已导出 {account.Name}：{Path.GetFileName(path)}");
                 }
                 catch (Exception ex)
                 {
                     failures.Add($"{account.Name}: {ex.Message}");
-                    TShock.Log.Error($"[TShockPlrExporter] Failed to export account {account.Id} ({account.Name}): {ex}");
+                    TShock.Log.Error($"[TShockPlrExporter] 导出账号 {account.Id}（{account.Name}）失败：{ex}");
                 }
             }
 
             Color color = failures.Count == 0 ? Color.Green : Color.Yellow;
-            args.Player.SendMessage($"Export complete: {success} succeeded, {failures.Count} failed. Output: {exportPath}", color);
+            args.Player.SendMessage($"导出完成：成功 {success} 个，失败 {failures.Count} 个。目录：{exportPath}", color);
 
             foreach (string failure in failures.Take(5))
             {
@@ -106,8 +106,8 @@ public sealed class Plugin : TerrariaPlugin
         }
         catch (Exception ex)
         {
-            TShock.Log.Error($"[TShockPlrExporter] Export command failed: {ex}");
-            args.Player.SendErrorMessage($"Export failed: {ex.Message}");
+            TShock.Log.Error($"[TShockPlrExporter] 执行导出命令失败：{ex}");
+            args.Player.SendErrorMessage($"导出失败：{ex.Message}");
         }
     }
 

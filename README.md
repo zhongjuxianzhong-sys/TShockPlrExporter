@@ -60,7 +60,7 @@ tshock/PlayerExports
 插件运行时会将该目录转换为绝对路径，并在命令结果中显示，例如：
 
 ```text
-Export complete: 1 succeeded, 0 failed. Output: /path/to/server/tshock/PlayerExports
+导出完成：成功 1 个，失败 0 个。目录：/path/to/server/tshock/PlayerExports
 ```
 
 在 Linux 面板服或 MCSManager 环境中，请以命令输出的绝对路径为准。
