@@ -19,6 +19,12 @@ internal sealed class CharacterDatabase : IDisposable
     private const string AccountSelect =
         "SELECT u.ID, u.Username FROM Users u INNER JOIN tsCharacter c ON c.Account = u.ID";
 
+    /// <summary>
+    /// 单条查询最长等待秒数。导出跑在后台线程，如果数据库无响应而查询又不超时，
+    /// 整个任务会永久挂住，并把「同一时间只允许一个导出」的标志一直占着，直到重启服务器。
+    /// </summary>
+    private const int CommandTimeoutSeconds = 30;
+
     private static bool schemaWarningLogged;
 
     private readonly IDbConnection connection;
@@ -112,6 +118,7 @@ internal sealed class CharacterDatabase : IDisposable
     {
         IDbCommand command = connection.CreateCommand();
         command.CommandText = sql;
+        command.CommandTimeout = CommandTimeoutSeconds;
         return command;
     }
 
