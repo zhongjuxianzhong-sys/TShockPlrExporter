@@ -15,6 +15,17 @@ internal sealed class MainThreadQueue
     private readonly ConcurrentQueue<Action> pending = new();
     private volatile bool accepting = true;
 
+    /// <summary>最后一次 <see cref="Drain"/> 的时刻（UTC ticks），用来判断主线程是否还在抽取队列。</summary>
+    private long lastDrainTicks = DateTime.UtcNow.Ticks;
+
+    /// <summary>
+    /// 距离上一次主线程抽取队列过了多久。
+    /// GameUpdate 钩子每帧都会调用 <see cref="Drain"/>，所以正常情况下这个值只有毫秒级；
+    /// 一旦明显偏大，说明钩子没有运行，任何排进来的工作项都不会被执行。
+    /// </summary>
+    public TimeSpan SinceLastDrain =>
+        new(Math.Max(0, DateTime.UtcNow.Ticks - Interlocked.Read(ref lastDrainTicks)));
+
     /// <summary>排入一个工作项，不等待其完成。</summary>
     public void Enqueue(Action action)
     {
@@ -29,6 +40,9 @@ internal sealed class MainThreadQueue
     /// <summary>由主线程的 GameUpdate 钩子调用，执行当前排队的所有工作项。</summary>
     public void Drain()
     {
+        // 心跳要无条件更新：队列为空同样说明主线程仍在正常抽取。
+        Interlocked.Exchange(ref lastDrainTicks, DateTime.UtcNow.Ticks);
+
         while (pending.TryDequeue(out Action? action))
         {
             try
@@ -37,7 +51,15 @@ internal sealed class MainThreadQueue
             }
             catch (Exception ex)
             {
-                TShock.Log.Error($"[TShockPlrExporter] 主线程工作项执行失败：{ex}");
+                // 这里只能走日志：工作项本身往往就是「给玩家发消息」，再往回发一次没有意义。
+                try
+                {
+                    TShock.Log.ConsoleError($"[TShockPlrExporter] 主线程工作项执行失败：{ex}");
+                }
+                catch
+                {
+                    Console.WriteLine($"[TShockPlrExporter] 主线程工作项执行失败：{ex}");
+                }
             }
         }
     }
@@ -72,7 +94,10 @@ internal sealed class MainThreadQueue
         {
             if (!completion.Task.Wait(timeout))
             {
-                throw new TimeoutException("等待主线程执行超时，服务器可能正在关闭或严重卡顿。");
+                throw new TimeoutException(
+                    "等待主线程执行超时。主线程队列已有 " +
+                    $"{SinceLastDrain.TotalSeconds:F1} 秒没有被抽取，服务器可能正在关闭、严重卡顿，" +
+                    "或者 GameUpdate 钩子没有运行。");
             }
         }
         catch (AggregateException ex) when (ex.InnerException is not null)
