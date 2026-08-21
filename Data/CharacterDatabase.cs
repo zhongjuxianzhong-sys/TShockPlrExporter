@@ -6,7 +6,7 @@ using MySql.Data.MySqlClient;
 using Terraria;
 using TShockAPI;
 
-namespace TShockPlrExporter;
+namespace TShockPlrExporter.Data;
 
 /// <summary>
 /// 读取 TShock 的账号表与 SSC 人物表。

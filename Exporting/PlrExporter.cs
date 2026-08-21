@@ -5,8 +5,9 @@ using Terraria;
 using Terraria.ID;
 using Terraria.IO;
 using TShockAPI;
+using TShockPlrExporter.Data;
 
-namespace TShockPlrExporter;
+namespace TShockPlrExporter.Exporting;
 
 internal sealed class PlrExporter
 {

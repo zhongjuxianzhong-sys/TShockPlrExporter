@@ -1,0 +1,7 @@
+# 仓库内统一用 LF，避免在 Windows 上编辑后产生整文件的换行差异。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.plr binary
+*.dll binary
