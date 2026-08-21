@@ -2,6 +2,8 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
+using TShockPlrExporter.Data;
+using TShockPlrExporter.Exporting;
 
 namespace TShockPlrExporter;
 

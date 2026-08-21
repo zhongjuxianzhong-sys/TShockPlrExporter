@@ -79,6 +79,27 @@ tshock/PlayerExports
 
 启动时插件会在控制台打印一条就绪信息，说明当前使用哪条保存路径（见下文「工作原理」）。
 
+编译产物只有 `TShockPlrExporter.dll` 一个文件。TShock 服务器自带的程序集（Terraria/OTAPI、Microsoft.Data.Sqlite、MySql.Data 等）不会被复制到输出目录，避免和服务器加载的版本冲突。
+
+## 项目结构
+
+```text
+TShockPlrExporter/
+├── Plugin.cs                    命令注册、任务编排与结果汇报
+├── Data/                        数据访问（namespace TShockPlrExporter.Data）
+│   ├── CharacterDatabase.cs     连接 SQLite/MySQL，读取 Users 与 tsCharacter
+│   ├── CharacterRecord.cs       一行 SSC 人物数据的内存表示
+│   └── ExportAccount.cs         待导出的账号（ID + 用户名）
+├── Exporting/                   导出实现（namespace TShockPlrExporter.Exporting）
+│   ├── PlrExporter.cs           还原 Player 对象、写盘、备份与轮转
+│   └── MainThreadQueue.cs       把工作项调度到 Terraria 主线程
+├── TShockPlrExporter.csproj
+├── .editorconfig
+└── README.md
+```
+
+除 `Plugin` 之外的类型都是 `internal`：它们是实现细节，只有 `Plugin` 需要被 TShock 反射加载。
+
 ## 工作原理
 
 TShock 的 SSC 人物数据保存在数据库的 `tsCharacter` 表中。插件读取账号表 `Users` 与人物表 `tsCharacter`，将数据库中的生命、魔力、外观、背包、护甲、染料、银行、虚空袋、Loadout 等字段还原到 `Terraria.Player` 对象中，然后调用 Terraria 自带的 `.plr` 保存逻辑生成文件。
@@ -168,3 +189,7 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 - 游戏内不再显示绝对路径与原始异常信息，改为日志编号。
 - 批量导出改为两条汇总消息，不再逐账号回显。
 - 容忍 `tsCharacter` 的列差异，缺列时使用默认值。
+- 源码按职责分入 `Data/` 与 `Exporting/`，命名空间与目录对齐；除 `Plugin` 外收敛为 `internal`。
+- 显式声明 `MySql.Data` 依赖（此前依赖 TShock 包间接引入），并排除包的 contentFiles，
+  编译输出不再多出 `HttpServer.dll`。
+- 新增 `.editorconfig`、`.gitattributes`，补全 `.gitignore`，编译开启 `TreatWarningsAsErrors`。

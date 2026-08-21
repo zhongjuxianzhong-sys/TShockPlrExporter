@@ -1,15 +1,33 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>TShockPlrExporter</AssemblyName>
     <RootNamespace>TShockPlrExporter</RootNamespace>
-    <LangVersion>latest</LangVersion>
+    <!-- 当前代码零警告，设为错误可以防止以后悄悄引入新的警告。 -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <PropertyGroup Label="程序集信息">
+    <Version>1.1.0</Version>
+    <Authors>TShockPlrExporter Contributors</Authors>
+    <Description>将 TShock 的 SSC 人物数据导出为 Terraria .plr 文件。</Description>
+    <RepositoryUrl>https://github.com/zhongjuxianzhong-sys/TShockPlrExporter</RepositoryUrl>
+  </PropertyGroup>
+
+  <!--
+    ExcludeAssets="runtime;contentFiles" + PrivateAssets="all"：这些程序集由 TShock 服务器自己提供，
+    插件只需要编译期引用。不排除的话输出目录里会多出 HttpServer.dll 之类的副本
+    （TShock 包把它作为 contentFiles 提供），一并复制进 ServerPlugins 会和服务器加载的版本冲突。
+    MySql.Data 虽然可以由 TShock 包间接带入，但代码里直接 using 了它，所以显式声明并对齐版本。
+  -->
   <ItemGroup>
-    <PackageReference Include="TShock" Version="6.1.0" ExcludeAssets="runtime" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="TShock" Version="6.1.0" ExcludeAssets="runtime;contentFiles" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" ExcludeAssets="runtime;contentFiles" PrivateAssets="all" />
+    <PackageReference Include="MySql.Data" Version="9.1.0" ExcludeAssets="runtime;contentFiles" PrivateAssets="all" />
   </ItemGroup>
+
 </Project>

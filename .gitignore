@@ -1,7 +1,26 @@
-*.user
-*.suo
-.vs/
+# 构建产物
 bin/
 obj/
-*.pdb
 *.dll
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*_i.c
+*_p.c
+
+# NuGet
+*.nupkg
+packages/
+
+# 操作系统
+.DS_Store
+Thumbs.db

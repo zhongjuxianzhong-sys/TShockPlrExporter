@@ -1,9 +1,10 @@
 using Microsoft.Xna.Framework;
 using Terraria;
 
-namespace TShockPlrExporter;
+namespace TShockPlrExporter.Data;
 
-public sealed class CharacterRecord
+/// <summary>tsCharacter 中一行 SSC 人物数据的内存表示。</summary>
+internal sealed class CharacterRecord
 {
     public int Account { get; init; }
     public int Health { get; init; }

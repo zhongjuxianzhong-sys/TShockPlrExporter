@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Runtime.ExceptionServices;
 using TShockAPI;
 
-namespace TShockPlrExporter;
+namespace TShockPlrExporter.Exporting;
 
 /// <summary>
 /// 把工作项排队到 Terraria 主线程执行。
