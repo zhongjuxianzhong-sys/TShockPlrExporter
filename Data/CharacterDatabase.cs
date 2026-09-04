@@ -357,9 +357,9 @@ internal sealed class CharacterDatabase : IDisposable
         }
 
         int value = encodedColor.Value;
-        byte r = (byte)((value >> 16) & 0xff);
+        byte r = (byte)(value & 0xff);
         byte g = (byte)((value >> 8) & 0xff);
-        byte b = (byte)(value & 0xff);
+        byte b = (byte)((value >> 16) & 0xff);
         return new Color(r, g, b);
     }
 

@@ -12,7 +12,9 @@ namespace TShockPlrExporter.Exporting;
 /// </summary>
 internal sealed class MainThreadQueue
 {
-    private readonly ConcurrentQueue<Action> pending = new();
+    private sealed record PendingAction(Action Action, CancellationToken CancellationToken);
+
+    private readonly ConcurrentQueue<PendingAction> pending = new();
     private volatile bool accepting = true;
 
     /// <summary>最后一次 <see cref="Drain"/> 的时刻（UTC ticks），用来判断主线程是否还在抽取队列。</summary>
@@ -34,7 +36,7 @@ internal sealed class MainThreadQueue
             return;
         }
 
-        pending.Enqueue(action);
+        pending.Enqueue(new PendingAction(action, CancellationToken.None));
     }
 
     /// <summary>由主线程的 GameUpdate 钩子调用，执行当前排队的所有工作项。</summary>
@@ -43,11 +45,16 @@ internal sealed class MainThreadQueue
         // 心跳要无条件更新：队列为空同样说明主线程仍在正常抽取。
         Interlocked.Exchange(ref lastDrainTicks, DateTime.UtcNow.Ticks);
 
-        while (pending.TryDequeue(out Action? action))
+        while (pending.TryDequeue(out PendingAction? pendingAction))
         {
+            if (pendingAction.CancellationToken.IsCancellationRequested)
+            {
+                continue;
+            }
+
             try
             {
-                action();
+                pendingAction.Action();
             }
             catch (Exception ex)
             {
@@ -77,23 +84,28 @@ internal sealed class MainThreadQueue
 
         TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        pending.Enqueue(() =>
-        {
-            try
+        using CancellationTokenSource timeoutToken = new();
+
+        pending.Enqueue(new PendingAction(
+            () =>
             {
-                action();
-                completion.TrySetResult();
-            }
-            catch (Exception ex)
-            {
-                completion.TrySetException(ex);
-            }
-        });
+                try
+                {
+                    action();
+                    completion.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    completion.TrySetException(ex);
+                }
+            },
+            timeoutToken.Token));
 
         try
         {
             if (!completion.Task.Wait(timeout))
             {
+                timeoutToken.Cancel();
                 throw new TimeoutException(
                     "等待主线程执行超时。主线程队列已有 " +
                     $"{SinceLastDrain.TotalSeconds:F1} 秒没有被抽取，服务器可能正在关闭、严重卡顿，" +

@@ -179,11 +179,13 @@ public sealed class Plugin : TerrariaPlugin
     {
         int success = 0;
         List<string> failures = new();
+        bool aborted = false;
 
         foreach (ExportAccount account in accounts)
         {
             if (shutdown.IsCancellationRequested)
             {
+                aborted = true;
                 SafeLogWarn($"[TShockPlrExporter][{traceId}] 插件正在卸载，导出提前结束。");
                 break;
             }
@@ -206,11 +208,15 @@ public sealed class Plugin : TerrariaPlugin
         // 结果只发两条消息，而不是每个账号一条：批量导出时逐条回显会把执行者刷下线。
         // 消息里统一显示相对路径：绝对路径又长又跟面板服的实例目录绑死，读起来没有帮助，
         // 真正需要它的时候去日志里看（下面那条日志无条件带绝对路径）。
-        string summary = $"导出完成：成功 {success} 个，失败 {failures.Count} 个。目录：tshock/PlayerExports（编号 {traceId}）";
+        string summary = aborted
+            ? $"导出已提前结束：成功 {success} 个，失败 {failures.Count} 个，剩余账号未导出。目录：tshock/PlayerExports（编号 {traceId}）"
+            : $"导出完成：成功 {success} 个，失败 {failures.Count} 个。目录：tshock/PlayerExports（编号 {traceId}）";
 
         // 汇总总是写一份进日志：即使消息投递环节出问题，也还有可查的记录。
-        SafeLogInfo($"[TShockPlrExporter][{traceId}] 导出完成：成功 {success} 个，失败 {failures.Count} 个，" +
-            $"目录 {exportRoot}");
+        SafeLogInfo($"[TShockPlrExporter][{traceId}] " +
+            (aborted
+                ? $"导出已提前结束：成功 {success} 个，失败 {failures.Count} 个，剩余账号未导出，目录 {exportRoot}"
+                : $"导出完成：成功 {success} 个，失败 {failures.Count} 个，目录 {exportRoot}"));
 
         Notify(requester, summary, failures.Count == 0 ? Level.Success : Level.Warning);
 
@@ -241,6 +247,9 @@ public sealed class Plugin : TerrariaPlugin
             return;
         }
 
+        int synced = 0;
+        int failed = 0;
+
         try
         {
             mainThread.Invoke(
@@ -248,17 +257,37 @@ public sealed class Plugin : TerrariaPlugin
                 {
                     foreach (TSPlayer player in online)
                     {
-                        if (player.Active && player.Account is not null)
+                        if (!player.Active || player.Account is null)
+                        {
+                            continue;
+                        }
+
+                        try
                         {
                             TShock.CharacterDB.InsertPlayerData(player);
+                            synced++;
+                        }
+                        catch (Exception ex)
+                        {
+                            failed++;
+                            SafeLogWarn(
+                                $"[TShockPlrExporter][{traceId}] 同步在线玩家 {player.Name}（ID {player.Account.ID}）的 SSC 数据失败：{ex.Message}");
                         }
                     }
                 },
                 MainThreadTimeout);
 
-            SafeLogInfo(
-                $"[TShockPlrExporter][{traceId}] 已先同步 {online.Count} 名在线玩家的 SSC 数据：" +
-                string.Join("、", online.Select(player => player.Name)));
+            if (failed == 0)
+            {
+                SafeLogInfo(
+                    $"[TShockPlrExporter][{traceId}] 已先同步 {synced} 名在线玩家的 SSC 数据：" +
+                    string.Join("、", online.Select(player => player.Name)));
+            }
+            else
+            {
+                SafeLogWarn(
+                    $"[TShockPlrExporter][{traceId}] 在线玩家 SSC 数据同步：成功 {synced} 名，失败 {failed} 名，导出的可能是较旧的数据。");
+            }
         }
         catch (Exception ex)
         {

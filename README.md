@@ -90,6 +90,8 @@ TShockPlrExporter/
 ├── .github/
 │   └── workflows/
 │       └── build.yml            GitHub Actions 构建工作流
+├── Properties/
+│   └── AssemblyInfo.cs          测试程序集访问内部类型的声明
 ├── Data/                        数据访问（namespace TShockPlrExporter.Data）
 │   ├── CharacterDatabase.cs     连接 SQLite/MySQL，读取 Users 与 tsCharacter
 │   ├── CharacterRecord.cs       一行 SSC 人物数据的内存表示
@@ -97,6 +99,12 @@ TShockPlrExporter/
 ├── Exporting/                   导出实现（namespace TShockPlrExporter.Exporting）
 │   ├── PlrExporter.cs           还原 Player 对象、写盘、备份与轮转
 │   └── MainThreadQueue.cs       把工作项调度到 Terraria 主线程
+├── tests/
+│   └── TShockPlrExporter.Tests/ 单元测试项目
+│       ├── DataCodecTests.cs    颜色、布尔数组与库存解码测试
+│       ├── FileNameTests.cs     安全文件名测试
+│       ├── MainThreadQueueTests.cs 主线程队列测试
+│       └── TShockPlrExporter.Tests.csproj
 ├── Plugin.cs                    命令注册、任务编排与结果汇报
 ├── TShockPlrExporter.csproj     项目文件与 NuGet 依赖
 ├── README.md                    使用说明
