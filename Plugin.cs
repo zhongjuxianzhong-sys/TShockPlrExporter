@@ -28,7 +28,7 @@ public sealed class Plugin : TerrariaPlugin
     public override string Name => "TShockPlrExporter";
     public override string Author => "TShockPlrExporter Contributors";
     public override string Description => "将 TShock 的 SSC 人物数据导出为 Terraria .plr 文件。";
-    public override Version Version => new(1, 1, 2);
+    public override Version Version => new(1, 2, 0);
 
     /// <summary>消息级别。只用 TShock 的字符串接口，不碰 Color，控制台与游戏内都能正常显示。</summary>
     private enum Level
