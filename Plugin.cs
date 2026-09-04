@@ -46,9 +46,9 @@ public sealed class Plugin : TerrariaPlugin
 
     public override void Initialize()
     {
-        exportCommand = new Command("plrexporter.export", ExportCommand, "exportplr")
+        exportCommand = new Command("plrexporter.export", ExportCommand, "player", "exportplr")
         {
-            HelpText = "导出 SSC 人物存档：/exportplr <账号名|账号 ID|all>"
+            HelpText = "导出 SSC 人物存档：/player <账号名|账号 ID|all>"
         };
 
         Commands.ChatCommands.Add(exportCommand);
@@ -90,7 +90,7 @@ public sealed class Plugin : TerrariaPlugin
     {
         if (args.Parameters.Count != 1)
         {
-            args.Player.SendErrorMessage("用法：/exportplr <账号名|账号 ID|all>");
+            args.Player.SendErrorMessage("用法：/player <账号名|账号 ID|all>");
             return;
         }
 
