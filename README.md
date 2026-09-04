@@ -26,18 +26,20 @@ TShockPlrExporter 是一个用于 TShock 服务器的导出插件。它会读取
 ## 命令
 
 ```text
-/exportplr <账号名|账号ID|all>
+/player <账号名|账号ID|all>
 ```
 
 示例：
 
 ```text
-/exportplr Alice
-/exportplr 12
-/exportplr all
+/player Alice
+/player 12
+/player all
 ```
 
 命令会立刻返回「导出任务已开始」，随后在完成时发送一条汇总结果。批量导出不会逐个账号回显，避免把执行者刷下线。
+
+`/exportplr` 仍保留为兼容别名，老服可以继续使用。
 
 如果目标是纯数字，插件会先按账号 ID 查询；查不到时再按账号名查询，所以纯数字的账号名同样可以导出。
 
@@ -75,7 +77,7 @@ tshock/PlayerExports
 2. 将 DLL 放入 TShock 服务器的 `ServerPlugins` 目录。
 3. 重启 TShock 服务器。
 4. 给管理员组添加 `plrexporter.export` 权限。
-5. 在服务器控制台或游戏内执行 `/exportplr` 命令。
+5. 在服务器控制台或游戏内执行 `/player` 命令。
 
 启动时插件会在控制台打印一条就绪信息，说明当前使用哪条保存路径（见下文「工作原理」）。
 
@@ -85,7 +87,9 @@ tshock/PlayerExports
 
 ```text
 TShockPlrExporter/
-├── Plugin.cs                    命令注册、任务编排与结果汇报
+├── .github/
+│   └── workflows/
+│       └── build.yml            GitHub Actions 构建工作流
 ├── Data/                        数据访问（namespace TShockPlrExporter.Data）
 │   ├── CharacterDatabase.cs     连接 SQLite/MySQL，读取 Users 与 tsCharacter
 │   ├── CharacterRecord.cs       一行 SSC 人物数据的内存表示
@@ -93,12 +97,18 @@ TShockPlrExporter/
 ├── Exporting/                   导出实现（namespace TShockPlrExporter.Exporting）
 │   ├── PlrExporter.cs           还原 Player 对象、写盘、备份与轮转
 │   └── MainThreadQueue.cs       把工作项调度到 Terraria 主线程
-├── TShockPlrExporter.csproj
-├── .editorconfig
-└── README.md
+├── Plugin.cs                    命令注册、任务编排与结果汇报
+├── TShockPlrExporter.csproj     项目文件与 NuGet 依赖
+├── README.md                    使用说明
+├── LICENSE                      开源许可证
+├── .editorconfig                代码风格配置
+├── .gitattributes               Git 属性配置
+└── .gitignore                   Git 忽略规则
 ```
 
 除 `Plugin` 之外的类型都是 `internal`：它们是实现细节，只有 `Plugin` 需要被 TShock 反射加载。
+
+本地构建产物位于 `bin/Release/net9.0/TShockPlrExporter.dll`；GitHub Actions 构建后会上传同名产物 `TShockPlrExporter-Release`。
 
 ## 工作原理
 
@@ -159,7 +169,7 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 - 确认服务器加载的是新版本。启动信息里会打印 `[TShockPlrExporter] v1.1.2 已就绪`，看不到版本号说明
   `ServerPlugins` 里还是旧 DLL。
 - 在 TShock 日志里搜索 `[TShockPlrExporter]`。汇总结果无条件写日志，导出成功、失败、异常都能在这里看到。
-- 再执行一次 `/exportplr`。如果提示「已有导出任务正在执行（已运行 N 秒）」，说明上一个任务还卡着，
+- 再执行一次 `/player`。如果提示「已有导出任务正在执行（已运行 N 秒）」，说明上一个任务还卡着，
   N 就是它已经卡了多久；数据库查询有 30 秒超时，超过这个时长仍不结束的话请把日志发出来。
 
 ### 命令提示成功但找不到文件
@@ -171,7 +181,7 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 确认账号已经注册，并且该账号存在 SSC 人物数据。可以尝试使用账号 ID：
 
 ```text
-/exportplr 12
+/player 12
 ```
 
 ### 提示「已有导出任务正在执行」
@@ -185,4 +195,3 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 ### 批量导出失败一部分账号
 
 命令会继续导出其他账号，并在结果中显示失败数量与前几个失败账号。详细异常会写入 TShock 日志，搜索 `[TShockPlrExporter]` 或本次导出的编号。
-
