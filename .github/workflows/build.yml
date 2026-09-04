@@ -30,6 +30,9 @@ jobs:
       - name: Build
         run: dotnet build TShockPlrExporter.csproj -c Release --no-restore --nologo
 
+      - name: Test
+        run: dotnet test tests/TShockPlrExporter.Tests/TShockPlrExporter.Tests.csproj -c Release --nologo
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
