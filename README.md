@@ -2,10 +2,10 @@
 
 TShockPlrExporter 是一个用于 TShock 服务器的人物存档导入导出插件。它可以在 TShock 数据库中的服务器端人物存档（SSC）数据和 Terraria 原生 `.plr` 文件之间转换。
 
-## 适用版本
+## 本人使用的版本
 
 - TShock: `6.1.0`
-- Terraria: `1.4.5.6`
+- Terraria: `1.4.5.6` 
 - 目标框架: `.NET 9.0`
 - 插件版本: `1.3.2`
 
