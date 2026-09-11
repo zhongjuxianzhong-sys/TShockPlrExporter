@@ -7,7 +7,7 @@ TShockPlrExporter 是一个用于 TShock 服务器的人物存档导入导出插
 - TShock: `6.1.0`
 - Terraria: `1.4.5.6`
 - 目标框架: `.NET 9.0`
-- 插件版本: `1.3.1`
+- 插件版本: `1.3.2`
 
 插件主要面向已开启服务器端人物存档（SSC）的 TShock 服务器。
 
@@ -17,6 +17,7 @@ TShockPlrExporter 是一个用于 TShock 服务器的人物存档导入导出插
 - 按账号 ID 导出单个玩家人物存档。
 - 一次性导出全部已有 SSC 人物存档。
 - 从 `tshock/PlayerImports` 导入 `.plr` 存档并覆盖指定账号的 SSC 数据。
+- 插件加载时会自动创建 `PlayerExports`、`PlayerImports`、`PlayerSscBackups` 目录。
 - 导入覆盖前自动把目标账号当前的 SSC 数据备份到 `tshock/PlayerSscBackups`。
 - 目标账号在线时，导入前会自动踢出该账号的在线会话，确认离线后再写入 SSC。
 - 输出 Terraria 原生 `.plr` 文件。
@@ -80,6 +81,14 @@ tshock/PlayerExports
 文件名格式为 `{账号名}-{账号ID}.plr`。账号名中的特殊字符会被替换为下划线，因此带上账号 ID 可以确保两个归一化后同名的账号（例如 `a/b` 与 `a_b`）不会互相覆盖，导出结果也能对回具体账号。
 
 汇总消息里统一显示相对路径 `tshock/PlayerExports`。绝对路径会写入 TShock 日志，需要确认面板服的实际实例目录时去日志里查。
+
+插件加载时会自动创建以下目录；如果目录不存在，也可以手动创建：
+
+```text
+tshock/PlayerExports
+tshock/PlayerImports
+tshock/PlayerSscBackups
+```
 
 待导入的 `.plr` 文件放在：
 
@@ -212,7 +221,7 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 1.1.1 起控制台的结果消息直接写控制台和日志，不再依赖游戏主循环，正常情况下必定会出现。如果仍然只
 有开始提示，按下面的顺序排查：
 
-- 确认服务器加载的是新版本。启动信息里会打印 `[TShockPlrExporter] v1.3.1 已就绪`，看不到版本号说明
+- 确认服务器加载的是新版本。启动信息里会打印 `[TShockPlrExporter] v1.3.2 已就绪`，看不到版本号说明
   `ServerPlugins` 里还是旧 DLL。
 - 在 TShock 日志里搜索 `[TShockPlrExporter]`。汇总结果无条件写日志，导出成功、失败、异常都能在这里看到。
 - 再执行一次 `/player` 或 `/playerimport`。如果提示「已有玩家存档任务正在执行（已运行 N 秒）」，说明上一个任务还卡着，

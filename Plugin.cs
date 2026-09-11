@@ -13,6 +13,7 @@ public sealed class Plugin : TerrariaPlugin
     /// <summary>聊天里最多列出多少个失败账号，其余只写日志，避免批量导出时刷屏。</summary>
     private const int MaxListedFailures = 5;
 
+    private const string ExportDirectoryName = "PlayerExports";
     private const string ImportDirectoryName = "PlayerImports";
     private const string BackupDirectoryName = "PlayerSscBackups";
 
@@ -37,7 +38,7 @@ public sealed class Plugin : TerrariaPlugin
     public override string Name => "TShockPlrExporter";
     public override string Author => "TShockPlrExporter Contributors";
     public override string Description => "在 TShock SSC 人物数据与 Terraria .plr 文件之间导入导出。";
-    public override Version Version => new(1, 3, 1);
+    public override Version Version => new(1, 3, 2);
 
     /// <summary>消息级别。只用 TShock 的字符串接口，不碰 Color，控制台与游戏内都能正常显示。</summary>
     private enum Level
@@ -69,6 +70,7 @@ public sealed class Plugin : TerrariaPlugin
         Commands.ChatCommands.Add(exportCommand);
         Commands.ChatCommands.Add(importCommand);
         ServerApi.Hooks.GameUpdate.Register(this, OnGameUpdate);
+        EnsureStorageDirectories();
 
         // 版本号打在启动信息里：换过 DLL 之后可以一眼确认服务器实际加载的是哪一版。
         TShock.Log.ConsoleInfo(PlrExporter.UsesInternalSave
@@ -206,7 +208,7 @@ public sealed class Plugin : TerrariaPlugin
 
         try
         {
-            string exportRoot = Path.Combine(Path.GetFullPath(TShock.SavePath), "PlayerExports");
+            string exportRoot = Path.Combine(Path.GetFullPath(TShock.SavePath), ExportDirectoryName);
             Directory.CreateDirectory(exportRoot);
 
             using CharacterDatabase database = CharacterDatabase.Open();
@@ -235,6 +237,25 @@ public sealed class Plugin : TerrariaPlugin
         {
             SafeLogError($"[TShockPlrExporter][{traceId}] 执行导出命令失败：{ex}");
             Notify(requester, $"导出失败，详情见服务器日志（编号 {traceId}）。", Level.Error);
+        }
+    }
+
+    private static void EnsureStorageDirectories()
+    {
+        string root = Path.GetFullPath(TShock.SavePath);
+
+        foreach (string directoryName in new[] { ExportDirectoryName, ImportDirectoryName, BackupDirectoryName })
+        {
+            string path = Path.Combine(root, directoryName);
+
+            try
+            {
+                Directory.CreateDirectory(path);
+            }
+            catch (Exception ex)
+            {
+                SafeLogError($"[TShockPlrExporter] 创建目录失败：{path}，{ex}");
+            }
         }
     }
 
