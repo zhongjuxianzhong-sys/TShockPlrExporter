@@ -3,6 +3,7 @@ using TerrariaApi.Server;
 using TShockAPI;
 using TShockPlrExporter.Data;
 using TShockPlrExporter.Exporting;
+using TShockPlrExporter.Importing;
 
 namespace TShockPlrExporter;
 
@@ -12,23 +13,31 @@ public sealed class Plugin : TerrariaPlugin
     /// <summary>聊天里最多列出多少个失败账号，其余只写日志，避免批量导出时刷屏。</summary>
     private const int MaxListedFailures = 5;
 
+    private const string ImportDirectoryName = "PlayerImports";
+    private const string BackupDirectoryName = "PlayerSscBackups";
+
     private static readonly TimeSpan MainThreadTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>主线程队列停摆多久就认为 GameUpdate 钩子出了问题，并在控制台提示。</summary>
     private static readonly TimeSpan DrainStallThreshold = TimeSpan.FromSeconds(5);
 
+    private static readonly TimeSpan ImportKickTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan ImportOfflineSettleDelay = TimeSpan.FromMilliseconds(750);
+
     private readonly MainThreadQueue mainThread = new();
     private readonly PlrExporter exporter;
+    private readonly PlrImporter importer;
     private readonly CancellationTokenSource shutdown = new();
 
     private Command? exportCommand;
-    private int exportRunning;
-    private long exportStartedTicks;
+    private Command? importCommand;
+    private int taskRunning;
+    private long taskStartedTicks;
 
     public override string Name => "TShockPlrExporter";
     public override string Author => "TShockPlrExporter Contributors";
-    public override string Description => "将 TShock 的 SSC 人物数据导出为 Terraria .plr 文件。";
-    public override Version Version => new(1, 2, 1);
+    public override string Description => "在 TShock SSC 人物数据与 Terraria .plr 文件之间导入导出。";
+    public override Version Version => new(1, 3, 1);
 
     /// <summary>消息级别。只用 TShock 的字符串接口，不碰 Color，控制台与游戏内都能正常显示。</summary>
     private enum Level
@@ -42,6 +51,7 @@ public sealed class Plugin : TerrariaPlugin
     public Plugin(Main game) : base(game)
     {
         exporter = new PlrExporter(mainThread);
+        importer = new PlrImporter();
     }
 
     public override void Initialize()
@@ -51,13 +61,19 @@ public sealed class Plugin : TerrariaPlugin
             HelpText = "导出 SSC 人物存档：/player <账号名|账号 ID|all>"
         };
 
+        importCommand = new Command("plrexporter.import", ImportCommand, "playerimport", "importplr")
+        {
+            HelpText = "导入 SSC 人物存档：/playerimport <账号名|账号 ID> <文件名>"
+        };
+
         Commands.ChatCommands.Add(exportCommand);
+        Commands.ChatCommands.Add(importCommand);
         ServerApi.Hooks.GameUpdate.Register(this, OnGameUpdate);
 
         // 版本号打在启动信息里：换过 DLL 之后可以一眼确认服务器实际加载的是哪一版。
         TShock.Log.ConsoleInfo(PlrExporter.UsesInternalSave
-            ? $"[TShockPlrExporter] v{Version} 已就绪，导出过程不会改动服务器的 SSC 状态。"
-            : $"[TShockPlrExporter] v{Version} 警告：未找到 Terraria 内部保存接口，将回退为临时切换 SSC 模式，" +
+            ? $"[TShockPlrExporter] v{Version} 已就绪，导入、导出和导出备份均可用。"
+            : $"[TShockPlrExporter] v{Version} 警告：未找到 Terraria 内部保存接口，导出将回退为临时切换 SSC 模式，" +
               "建议在无人在线时导出。");
     }
 
@@ -73,6 +89,12 @@ public sealed class Plugin : TerrariaPlugin
             {
                 Commands.ChatCommands.Remove(exportCommand);
                 exportCommand = null;
+            }
+
+            if (importCommand is not null)
+            {
+                Commands.ChatCommands.Remove(importCommand);
+                importCommand = null;
             }
 
             shutdown.Dispose();
@@ -94,22 +116,13 @@ public sealed class Plugin : TerrariaPlugin
             return;
         }
 
-        // 同一时间只允许一个导出任务：批量导出会构造大量 Player 对象并写盘，
-        // 并发跑没有收益，只会放大磁盘压力和备份轮转的竞争。
-        if (Interlocked.CompareExchange(ref exportRunning, 1, 0) != 0)
-        {
-            TimeSpan elapsed = new(Math.Max(0, DateTime.UtcNow.Ticks - Interlocked.Read(ref exportStartedTicks)));
-            args.Player.SendErrorMessage(
-                $"已有导出任务正在执行（已运行 {elapsed.TotalSeconds:F0} 秒），请等它结束后再试。");
-            return;
-        }
-
-        Interlocked.Exchange(ref exportStartedTicks, DateTime.UtcNow.Ticks);
-
         TSPlayer requester = args.Player;
         string target = args.Parameters[0];
 
-        requester.SendInfoMessage("导出任务已开始，完成后会在这里汇总结果。");
+        if (!TryStartTask(requester, "导出"))
+        {
+            return;
+        }
 
         // 放到后台线程：批量导出的 SQL 查询、Player 构造和写盘都是同步操作，
         // 留在命令线程上会卡住服务器（控制台命令线程或客户端封包线程）。
@@ -117,7 +130,7 @@ public sealed class Plugin : TerrariaPlugin
             .ContinueWith(
                 task =>
                 {
-                    Interlocked.Exchange(ref exportRunning, 0);
+                    EndTask();
 
                     // RunExport 内部已经全包了 try/catch，但如果连 catch 里的日志调用都抛了，
                     // 异常会落到这里。不观测的话任务就彻底无声无息地消失。
@@ -128,6 +141,61 @@ public sealed class Plugin : TerrariaPlugin
                     }
                 },
                 TaskScheduler.Default);
+    }
+
+    private void ImportCommand(CommandArgs args)
+    {
+        if (args.Parameters.Count != 2)
+        {
+            args.Player.SendErrorMessage("用法：/playerimport <账号名|账号 ID> <文件名>");
+            return;
+        }
+
+        TSPlayer requester = args.Player;
+        string target = args.Parameters[0];
+        string fileName = args.Parameters[1];
+
+        if (!TryStartTask(requester, "导入"))
+        {
+            return;
+        }
+
+        _ = Task.Run(() => RunImport(requester, target, fileName), CancellationToken.None)
+            .ContinueWith(
+                task =>
+                {
+                    EndTask();
+
+                    if (task.IsFaulted)
+                    {
+                        SafeLogError($"[TShockPlrExporter] 导入任务异常终止：{task.Exception}");
+                        Notify(requester, "导入任务异常终止，详情见服务器日志。", Level.Error);
+                    }
+                },
+                TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// 导出和导入都会构造 Player、访问数据库并写盘，共用一把任务锁避免互相踩状态。
+    /// </summary>
+    private bool TryStartTask(TSPlayer requester, string taskName)
+    {
+        if (Interlocked.CompareExchange(ref taskRunning, 1, 0) != 0)
+        {
+            TimeSpan elapsed = new(Math.Max(0, DateTime.UtcNow.Ticks - Interlocked.Read(ref taskStartedTicks)));
+            requester.SendErrorMessage(
+                $"已有玩家存档任务正在执行（已运行 {elapsed.TotalSeconds:F0} 秒），请等它结束后再试。");
+            return false;
+        }
+
+        Interlocked.Exchange(ref taskStartedTicks, DateTime.UtcNow.Ticks);
+        requester.SendInfoMessage($"{taskName}任务已开始，完成后会在这里汇总结果。");
+        return true;
+    }
+
+    private void EndTask()
+    {
+        Interlocked.Exchange(ref taskRunning, 0);
     }
 
     private void RunExport(TSPlayer requester, string target)
@@ -168,6 +236,158 @@ public sealed class Plugin : TerrariaPlugin
             SafeLogError($"[TShockPlrExporter][{traceId}] 执行导出命令失败：{ex}");
             Notify(requester, $"导出失败，详情见服务器日志（编号 {traceId}）。", Level.Error);
         }
+    }
+
+    private void RunImport(TSPlayer requester, string target, string fileName)
+    {
+        string traceId = Guid.NewGuid().ToString("N")[..8];
+
+        try
+        {
+            string importRoot = Path.Combine(Path.GetFullPath(TShock.SavePath), ImportDirectoryName);
+            Directory.CreateDirectory(importRoot);
+            string importPath = PlrImporter.ResolveInputPath(importRoot, fileName);
+
+            ExportAccount account;
+            using (CharacterDatabase database = CharacterDatabase.Open())
+            {
+                IReadOnlyList<ExportAccount> matches = database.FindImportAccounts(target);
+
+                if (matches.Count == 0)
+                {
+                    Notify(requester, $"未找到与“{target}”匹配的 TShock 账号。", Level.Error);
+                    return;
+                }
+
+                if (matches.Count > 1)
+                {
+                    Notify(requester, $"“{target}”匹配到多个 TShock 账号，请改用账号 ID。", Level.Error);
+                    return;
+                }
+
+                account = matches[0];
+            }
+
+            // 先把文件完整读入并修正危险字段，确认可导入后再踢出在线玩家。
+            Player importedPlayer = importer.Load(importPath, account);
+            EnsureTargetOffline(account, requester, traceId);
+
+            string? backupPath = null;
+            using (CharacterDatabase database = CharacterDatabase.Open())
+            {
+                if (database.ReadCharacter(account.Id) is not null)
+                {
+                    string backupRoot = Path.Combine(Path.GetFullPath(TShock.SavePath), BackupDirectoryName);
+                    Directory.CreateDirectory(backupRoot);
+                    backupPath = exporter.Export(database, account, backupRoot);
+                    SafeLogInfo(
+                        $"[TShockPlrExporter][{traceId}] 导入前已备份账号 {account.Id}（{account.Name}）的 SSC 到 {backupPath}");
+                }
+            }
+
+            importer.WriteToSsc(importedPlayer, account);
+
+            string backupMessage = backupPath is null
+                ? "目标账号原本没有 SSC 数据，未生成备份。"
+                : $"原 SSC 已备份到 tshock/{BackupDirectoryName}/{Path.GetFileName(backupPath)}。";
+
+            SafeLogInfo(
+                $"[TShockPlrExporter][{traceId}] 已从 {importPath} 导入账号 {account.Id}（{account.Name}）的 SSC。" +
+                (backupPath is null ? string.Empty : $" 导入前备份：{backupPath}"));
+
+            Notify(
+                requester,
+                $"导入完成：{account.Name}（ID {account.Id}）已写入 SSC。{backupMessage}（编号 {traceId}）",
+                Level.Success);
+        }
+        catch (FileNotFoundException ex)
+        {
+            SafeLogError($"[TShockPlrExporter][{traceId}] 导入文件或 TShock 数据库不存在：{ex}");
+            Notify(requester, $"导入失败：导入文件或 TShock 数据库不存在，详情见服务器日志（编号 {traceId}）。", Level.Error);
+        }
+        catch (Exception ex)
+        {
+            SafeLogError($"[TShockPlrExporter][{traceId}] 执行导入命令失败：{ex}");
+            Notify(requester, $"导入失败，详情见服务器日志（编号 {traceId}）。", Level.Error);
+        }
+    }
+
+    /// <summary>
+    /// 在线玩家的当前状态会在断开或保存时覆盖 tsCharacter，因此导入前必须让目标账号离线。
+    /// </summary>
+    private void EnsureTargetOffline(ExportAccount account, TSPlayer requester, string traceId)
+    {
+        List<TSPlayer> online = GetOnlineTargets(account.Id);
+        if (online.Count == 0)
+        {
+            return;
+        }
+
+        SafeLogInfo(
+            $"[TShockPlrExporter][{traceId}] 准备导入账号 {account.Id}（{account.Name}），先踢出在线会话：" +
+            string.Join("、", online.Select(player => player.Name)));
+
+        string reason = "管理员正在导入你的角色存档，请稍后重新登录。";
+
+        try
+        {
+            mainThread.Invoke(
+                () =>
+                {
+                    foreach (TSPlayer player in online)
+                    {
+                        if (!player.Active || player.Account?.ID != account.Id)
+                        {
+                            continue;
+                        }
+
+                        if (!player.Kick(
+                                reason,
+                                force: true,
+                                silent: true,
+                                adminUserName: requester.Name,
+                                saveSSI: false))
+                        {
+                            throw new InvalidOperationException($"未能踢出在线玩家 {player.Name}。");
+                        }
+                    }
+                },
+                MainThreadTimeout);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"踢出目标账号在线会话失败：{ex.Message}", ex);
+        }
+
+        DateTime deadline = DateTime.UtcNow + ImportKickTimeout;
+        while (GetOnlineTargets(account.Id).Count != 0)
+        {
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new TimeoutException(
+                    $"等待账号 {account.Name}（ID {account.Id}）离线超时，导入已中止，未修改 SSC。");
+            }
+
+            Thread.Sleep(200);
+        }
+
+        // 给 TShock 的断开处理留出完成状态保存和连接清理的时间。
+        Thread.Sleep(ImportOfflineSettleDelay);
+
+        List<TSPlayer> remaining = GetOnlineTargets(account.Id);
+        if (remaining.Count != 0)
+        {
+            throw new InvalidOperationException(
+                $"账号 {account.Name}（ID {account.Id}）在踢出后又重新上线，导入已中止，未修改 SSC。");
+        }
+    }
+
+    private static List<TSPlayer> GetOnlineTargets(int accountId)
+    {
+        return TShock.Players
+            .Where(player => player is { Active: true, IsLoggedIn: true }
+                && player.Account?.ID == accountId)
+            .ToList();
     }
 
     private void ExportAll(

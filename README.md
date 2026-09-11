@@ -1,13 +1,13 @@
 # TShockPlrExporter
 
-TShockPlrExporter 是一个用于 TShock 服务器的导出插件。它会读取 TShock 数据库中的服务器端人物存档（SSC）数据，并导出为 Terraria 原生 `.plr` 文件。
+TShockPlrExporter 是一个用于 TShock 服务器的人物存档导入导出插件。它可以在 TShock 数据库中的服务器端人物存档（SSC）数据和 Terraria 原生 `.plr` 文件之间转换。
 
 ## 适用版本
 
 - TShock: `6.1.0`
 - Terraria: `1.4.5.6`
 - 目标框架: `.NET 9.0`
-- 插件版本: `1.2.1`
+- 插件版本: `1.3.1`
 
 插件主要面向已开启服务器端人物存档（SSC）的 TShock 服务器。
 
@@ -16,17 +16,21 @@ TShockPlrExporter 是一个用于 TShock 服务器的导出插件。它会读取
 - 按账号名导出单个玩家人物存档。
 - 按账号 ID 导出单个玩家人物存档。
 - 一次性导出全部已有 SSC 人物存档。
+- 从 `tshock/PlayerImports` 导入 `.plr` 存档并覆盖指定账号的 SSC 数据。
+- 导入覆盖前自动把目标账号当前的 SSC 数据备份到 `tshock/PlayerSscBackups`。
+- 目标账号在线时，导入前会自动踢出该账号的在线会话，确认离线后再写入 SSC。
 - 输出 Terraria 原生 `.plr` 文件。
 - 支持 SQLite 与 MySQL 两种 TShock 存储后端，按 `tshock/config.json` 的配置自动选择。
 - 导出前先把在线玩家的 SSC 数据同步落库，避免导出到过期内容。
 - 同名文件已存在时，会先改名为带毫秒时间戳的 `.plr.bak` 备份，并只保留最新的 10 份。
 - 导出完成后会检查目标文件是否存在且非空，避免误报成功。
-- 导出在后台线程执行，不阻塞服务器主循环；同一时间只允许一个导出任务。
+- 导出和导入在后台线程执行，不阻塞服务器主循环；同一时间只允许一个玩家存档任务。
 
 ## 命令
 
 ```text
 /player <账号名|账号ID|all>
+/playerimport <账号名|账号ID> <文件名>
 ```
 
 示例：
@@ -35,11 +39,15 @@ TShockPlrExporter 是一个用于 TShock 服务器的导出插件。它会读取
 /player Alice
 /player 12
 /player all
+/playerimport Alice Alice.plr
+/playerimport 12 Alice.plr
 ```
 
-命令会立刻返回「导出任务已开始」，随后在完成时发送一条汇总结果。批量导出不会逐个账号回显，避免把执行者刷下线。
+导出命令会立刻返回「导出任务已开始」，随后在完成时发送一条汇总结果。批量导出不会逐个账号回显，避免把执行者刷下线。
 
-`/exportplr` 仍保留为兼容别名，老服可以继续使用。
+导入前需要把 `.plr` 文件放进 `tshock/PlayerImports`。导入参数只接受文件名，不接受子目录、绝对路径或路径穿越。目标账号在线时会先被踢出，导入成功后该账号重新登录即可加载新存档。
+
+`/exportplr` 仍保留为导出的兼容别名，`/importplr` 是导入的兼容别名。
 
 如果目标是纯数字，插件会先按账号 ID 查询；查不到时再按账号名查询，所以纯数字的账号名同样可以导出。
 
@@ -49,17 +57,19 @@ TShockPlrExporter 是一个用于 TShock 服务器的导出插件。它会读取
 
 ```text
 plrexporter.export
+plrexporter.import
 ```
 
 示例，将权限授予 `superadmin` 组：
 
 ```text
 /group addperm superadmin plrexporter.export
+/group addperm superadmin plrexporter.import
 ```
 
 如果你的管理员组不是 `superadmin`，请替换为实际组名。
 
-## 输出目录
+## 存档目录
 
 导出的 `.plr` 文件会写入：
 
@@ -71,13 +81,27 @@ tshock/PlayerExports
 
 汇总消息里统一显示相对路径 `tshock/PlayerExports`。绝对路径会写入 TShock 日志，需要确认面板服的实际实例目录时去日志里查。
 
+待导入的 `.plr` 文件放在：
+
+```text
+tshock/PlayerImports
+```
+
+导入覆盖前，目标账号已有的 SSC 数据会备份为 `.plr` 文件：
+
+```text
+tshock/PlayerSscBackups
+```
+
+成功导入后，源文件仍保留在 `PlayerImports`，插件不会自动删除或移动它。
+
 ## 安装
 
 1. 编译插件，得到 `TShockPlrExporter.dll`。
 2. 将 DLL 放入 TShock 服务器的 `ServerPlugins` 目录。
 3. 重启 TShock 服务器。
-4. 给管理员组添加 `plrexporter.export` 权限。
-5. 在服务器控制台或游戏内执行 `/player` 命令。
+4. 按需给管理员组添加 `plrexporter.export`、`plrexporter.import` 权限。
+5. 在服务器控制台或游戏内执行 `/player` 或 `/playerimport` 命令。
 
 启动时插件会在控制台打印一条就绪信息，说明当前使用哪条保存路径（见下文「工作原理」）。
 
@@ -99,10 +123,14 @@ TShockPlrExporter/
 ├── Exporting/                   导出实现（namespace TShockPlrExporter.Exporting）
 │   ├── PlrExporter.cs           还原 Player 对象、写盘、备份与轮转
 │   └── MainThreadQueue.cs       把工作项调度到 Terraria 主线程
+├── Importing/                   导入实现（namespace TShockPlrExporter.Importing）
+│   └── PlrImporter.cs           读取 .plr、修正危险字段并写入 SSC
 ├── tests/
 │   └── TShockPlrExporter.Tests/ 单元测试项目
 │       ├── DataCodecTests.cs    颜色、布尔数组与库存解码测试
 │       ├── FileNameTests.cs     安全文件名测试
+│       ├── ImportConversionTests.cs 导入数值收敛测试
+│       ├── ImportPathTests.cs   导入路径安全测试
 │       ├── MainThreadQueueTests.cs 主线程队列测试
 │       └── TShockPlrExporter.Tests.csproj
 ├── Plugin.cs                    命令注册、任务编排与结果汇报
@@ -120,7 +148,9 @@ TShockPlrExporter/
 
 ## 工作原理
 
-TShock 的 SSC 人物数据保存在数据库的 `tsCharacter` 表中。插件读取账号表 `Users` 与人物表 `tsCharacter`，将数据库中的生命、魔力、外观、背包、护甲、染料、银行、虚空袋、Loadout 等字段还原到 `Terraria.Player` 对象中，然后调用 Terraria 自带的 `.plr` 保存逻辑生成文件。
+TShock 的 SSC 人物数据保存在数据库的 `tsCharacter` 表中。导出时，插件读取账号表 `Users` 与人物表 `tsCharacter`，将数据库中的生命、魔力、外观、背包、护甲、染料、银行、虚空袋、Loadout 等字段还原到 `Terraria.Player` 对象中，然后调用 Terraria 自带的 `.plr` 保存逻辑生成文件。
+
+导入时，插件先校验 `PlayerImports` 下的 `.plr` 文件名，使用 Terraria 原生读档逻辑加载角色，修正会导致客户端读档崩溃的异常字段，然后通过 TShock 自己的 `PlayerData` 写入路径覆盖目标账号的 `tsCharacter` 数据。
 
 ### 数据库访问
 
@@ -140,9 +170,15 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 
 在线玩家的 SSC 数据只有在特定时机才会落库，直接读 `tsCharacter` 拿到的是上一次保存的旧状态。导出前插件会先把本次涉及的在线玩家数据写一次库，避免命令报「成功」而文件里是过期内容。这一步失败时会记录警告并继续导出。
 
+导入时目标账号必须离线，否则在线会话稍后保存会给旧角色数据覆盖导入结果。插件会先在主线程踢出该账号的在线会话，等待会话消失并留出短暂清理时间；如果超时或玩家重新上线，导入会中止且不修改 SSC。
+
+### 导入备份与失败处理
+
+目标账号已有 `tsCharacter` 数据时，插件会先导出一份当前 SSC 到 `tshock/PlayerSscBackups`。备份失败时不会继续覆盖；导入失败时数据库保持原样。导入只修改人物数据，不会改动账号密码、权限、UUID、区域等其他内容。
+
 ### 数值收敛
 
-`skinVariant`、`hair`、`team`、`currentLoadoutIndex` 这几个字段会在客户端读档时被当作数组下标使用，数据库里的异常值会直接让客户端崩在加载阶段。插件按运行时的实际上界收敛这些值，并在日志中记录被修正的账号与原值。
+`skinVariant`、`hair`、`team`、`currentLoadoutIndex` 这几个字段会在客户端读档时被当作数组下标使用，数据库里的异常值会直接让客户端崩在加载阶段。插件按运行时的实际上界收敛这些值，并在日志中记录被修正的账号与原值。导入时也会对生命、魔力、任务次数和死亡次数做同样的边界修正。
 
 ## 导出内容范围
 
@@ -163,9 +199,11 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 
 - 只能导出 TShock 已保存到 `tsCharacter` 的服务器端人物数据。
 - 如果某些客户端本地状态从未被 TShock 保存，插件无法凭空还原。
-- 导出会写出 `.plr` 文件，并可能在导出前刷新在线玩家的 SSC 数据；插件不会改动账号、权限、区域等其他数据库内容。
+- 导入只会读取 `tshock/PlayerImports` 下的文件名，不提供网页上传或任意服务器路径导入。
+- 导入不会创建 TShock 账号，目标账号必须已经存在于 `Users` 表中。
+- 导出和导入只会处理人物数据及必要的在线会话；插件不会改动账号密码、权限、UUID、区域等其他内容。
 - 每个账号最多保留 10 份 `.plr.bak` 备份，更旧的会在导出时被删除。如需长期留存，请自行归档。
-- 建议导出前备份整个 `tshock` 目录，尤其是数据库文件。
+- 建议执行批量导出或导入前备份整个 `tshock` 目录，尤其是数据库文件。
 
 ## 常见问题
 
@@ -174,10 +212,10 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 1.1.1 起控制台的结果消息直接写控制台和日志，不再依赖游戏主循环，正常情况下必定会出现。如果仍然只
 有开始提示，按下面的顺序排查：
 
-- 确认服务器加载的是新版本。启动信息里会打印 `[TShockPlrExporter] v1.2.1 已就绪`，看不到版本号说明
+- 确认服务器加载的是新版本。启动信息里会打印 `[TShockPlrExporter] v1.3.1 已就绪`，看不到版本号说明
   `ServerPlugins` 里还是旧 DLL。
 - 在 TShock 日志里搜索 `[TShockPlrExporter]`。汇总结果无条件写日志，导出成功、失败、异常都能在这里看到。
-- 再执行一次 `/player`。如果提示「已有导出任务正在执行（已运行 N 秒）」，说明上一个任务还卡着，
+- 再执行一次 `/player` 或 `/playerimport`。如果提示「已有玩家存档任务正在执行（已运行 N 秒）」，说明上一个任务还卡着，
   N 就是它已经卡了多久；数据库查询有 30 秒超时，超过这个时长仍不结束的话请把日志发出来。
 
 ### 命令提示成功但找不到文件
@@ -194,7 +232,7 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 
 ### 提示「已有导出任务正在执行」
 
-同一时间只允许一个导出任务。等上一个任务的汇总消息出现后再重试。
+同一时间只允许一个导出或导入任务。等上一个任务的汇总消息出现后再重试。
 
 ### 导出失败，提示查看日志编号
 
@@ -203,3 +241,21 @@ TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会�
 ### 批量导出失败一部分账号
 
 命令会继续导出其他账号，并在结果中显示失败数量与前几个失败账号。详细异常会写入 TShock 日志，搜索 `[TShockPlrExporter]` 或本次导出的编号。
+
+### 导入时报找不到文件
+
+确认 `.plr` 文件已经放在 `tshock/PlayerImports`，并且导入参数只写文件名。例如：
+
+```text
+/playerimport Alice Alice.plr
+```
+
+不要传 `PlayerImports/Alice.plr`、绝对路径或 `..`。
+
+### 导入时目标玩家被踢出
+
+这是预期行为。在线玩家的旧会话可能覆盖新导入的 SSC，因此插件会先踢出目标账号，确认离线后才会写库。目标玩家重新登录后会加载导入后的角色。
+
+### 导入失败后原角色是否还在
+
+只要目标账号已有 SSC 数据，覆盖前会先备份到 `tshock/PlayerSscBackups`。如果导入过程失败，原数据库数据不会被修改；如需恢复，可将备份 `.plr` 重新放回 `PlayerImports` 后再导入。

@@ -16,8 +16,39 @@ namespace TShockPlrExporter.Data;
 /// </summary>
 internal sealed class CharacterDatabase : IDisposable
 {
-    private const string AccountSelect =
-        "SELECT u.ID, u.Username FROM Users u INNER JOIN tsCharacter c ON c.Account = u.ID";
+    private const string AccountSelect = "SELECT u.ID, u.Username FROM Users u";
+
+    private const string SscAccountSelect =
+        AccountSelect + " INNER JOIN tsCharacter c ON c.Account = u.ID";
+
+    private const string InsertCharacterSql =
+        "INSERT INTO tsCharacter (Account, Health, MaxHealth, Mana, MaxMana, Inventory, extraSlot, spawnX, spawnY, " +
+        "skinVariant, hair, hairDye, hairColor, pantsColor, shirtColor, underShirtColor, shoeColor, hideVisuals, " +
+        "skinColor, eyeColor, questsCompleted, usingBiomeTorches, happyFunTorchTime, unlockedBiomeTorches, " +
+        "currentLoadoutIndex, ateArtisanBread, usedAegisCrystal, usedAegisFruit, usedArcaneCrystal, usedGalaxyPearl, " +
+        "usedGummyWorm, usedAmbrosia, unlockedSuperCart, enabledSuperCart, deathsPVE, deathsPVP, voiceVariant, " +
+        "voicePitchOffset, team) VALUES (@account, @health, @maxHealth, @mana, @maxMana, @inventory, @extraSlot, " +
+        "@spawnX, @spawnY, @skinVariant, @hair, @hairDye, @hairColor, @pantsColor, @shirtColor, @underShirtColor, " +
+        "@shoeColor, @hideVisuals, @skinColor, @eyeColor, @questsCompleted, @usingBiomeTorches, @happyFunTorchTime, " +
+        "@unlockedBiomeTorches, @currentLoadoutIndex, @ateArtisanBread, @usedAegisCrystal, @usedAegisFruit, " +
+        "@usedArcaneCrystal, @usedGalaxyPearl, @usedGummyWorm, @usedAmbrosia, @unlockedSuperCart, @enabledSuperCart, " +
+        "@deathsPVE, @deathsPVP, @voiceVariant, @voicePitchOffset, @team);";
+
+    private const string UpdateCharacterSql =
+        "UPDATE tsCharacter SET Health = @health, MaxHealth = @maxHealth, Mana = @mana, MaxMana = @maxMana, " +
+        "Inventory = @inventory, extraSlot = @extraSlot, spawnX = @spawnX, spawnY = @spawnY, " +
+        "skinVariant = @skinVariant, hair = @hair, hairDye = @hairDye, hairColor = @hairColor, " +
+        "pantsColor = @pantsColor, shirtColor = @shirtColor, underShirtColor = @underShirtColor, " +
+        "shoeColor = @shoeColor, hideVisuals = @hideVisuals, skinColor = @skinColor, eyeColor = @eyeColor, " +
+        "questsCompleted = @questsCompleted, usingBiomeTorches = @usingBiomeTorches, " +
+        "happyFunTorchTime = @happyFunTorchTime, unlockedBiomeTorches = @unlockedBiomeTorches, " +
+        "currentLoadoutIndex = @currentLoadoutIndex, ateArtisanBread = @ateArtisanBread, " +
+        "usedAegisCrystal = @usedAegisCrystal, usedAegisFruit = @usedAegisFruit, " +
+        "usedArcaneCrystal = @usedArcaneCrystal, usedGalaxyPearl = @usedGalaxyPearl, " +
+        "usedGummyWorm = @usedGummyWorm, usedAmbrosia = @usedAmbrosia, " +
+        "unlockedSuperCart = @unlockedSuperCart, enabledSuperCart = @enabledSuperCart, deathsPVE = @deathsPVE, " +
+        "deathsPVP = @deathsPVP, voiceVariant = @voiceVariant, voicePitchOffset = @voicePitchOffset, " +
+        "team = @team WHERE Account = @account;";
 
     /// <summary>
     /// 单条查询最长等待秒数。导出跑在后台线程，如果数据库无响应而查询又不超时，
@@ -36,6 +67,16 @@ internal sealed class CharacterDatabase : IDisposable
 
     public static CharacterDatabase Open()
     {
+        return Open(readOnly: true);
+    }
+
+    public static CharacterDatabase OpenForWrite()
+    {
+        return Open(readOnly: false);
+    }
+
+    private static CharacterDatabase Open(bool readOnly)
+    {
         string storageType = TShock.Config.Settings.StorageType?.Trim() ?? string.Empty;
 
         if (storageType.Equals("mysql", StringComparison.OrdinalIgnoreCase))
@@ -48,7 +89,7 @@ internal sealed class CharacterDatabase : IDisposable
             throw new NotSupportedException($"不支持的存储类型“{storageType}”，插件目前只支持 sqlite 与 mysql。");
         }
 
-        return new CharacterDatabase(OpenSqlite());
+        return new CharacterDatabase(OpenSqlite(readOnly));
     }
 
     public void Dispose()
@@ -56,12 +97,13 @@ internal sealed class CharacterDatabase : IDisposable
         connection.Dispose();
     }
 
-    private static IDbConnection OpenSqlite()
+    private static IDbConnection OpenSqlite(bool readOnly)
     {
         string connectionString = BuildSqliteConnectionString(
             TShock.SavePath,
             TShock.Config.Settings.SqliteConnectionString,
-            TShock.Config.Settings.SqliteDBPath);
+            TShock.Config.Settings.SqliteDBPath,
+            readOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate);
 
         SqliteConnection connection = new(connectionString);
         connection.Open();
@@ -71,7 +113,8 @@ internal sealed class CharacterDatabase : IDisposable
     internal static string BuildSqliteConnectionString(
         string savePath,
         string? configuredConnectionString,
-        string? configuredPath)
+        string? configuredPath,
+        SqliteOpenMode mode = SqliteOpenMode.ReadOnly)
     {
         SqliteConnectionStringBuilder builder;
 
@@ -90,7 +133,7 @@ internal sealed class CharacterDatabase : IDisposable
             };
         }
 
-        builder.Mode = SqliteOpenMode.ReadOnly;
+        builder.Mode = mode;
         return builder.ToString();
     }
 
@@ -146,33 +189,52 @@ internal sealed class CharacterDatabase : IDisposable
         return builder.ToString();
     }
 
-    private IDbCommand CreateCommand(string sql)
+    private IDbCommand CreateCommand(string sql, IDbTransaction? transaction = null)
     {
         IDbCommand command = connection.CreateCommand();
         command.CommandText = sql;
         command.CommandTimeout = CommandTimeoutSeconds;
+
+        if (transaction is not null)
+        {
+            command.Transaction = transaction;
+        }
+
         return command;
     }
 
-    private static void AddParameter(IDbCommand command, string name, object value)
+    private static void AddParameter(IDbCommand command, string name, object? value)
     {
         IDbDataParameter parameter = command.CreateParameter();
         parameter.ParameterName = name;
-        parameter.Value = value;
+        parameter.Value = value ?? DBNull.Value;
         command.Parameters.Add(parameter);
     }
 
     public IReadOnlyList<ExportAccount> GetAllAccounts()
     {
-        using IDbCommand command = CreateCommand($"{AccountSelect} ORDER BY u.ID;");
+        using IDbCommand command = CreateCommand($"{SscAccountSelect} ORDER BY u.ID;");
         return ReadAccounts(command);
     }
 
     public IReadOnlyList<ExportAccount> FindAccounts(string target)
     {
+        return FindAccounts(target, SscAccountSelect);
+    }
+
+    /// <summary>
+    /// 导入需要允许覆盖尚未有 tsCharacter 的账号，因此这里只查 Users 表。
+    /// </summary>
+    public IReadOnlyList<ExportAccount> FindImportAccounts(string target)
+    {
+        return FindAccounts(target, AccountSelect);
+    }
+
+    private IReadOnlyList<ExportAccount> FindAccounts(string target, string accountSelect)
+    {
         if (int.TryParse(target, NumberStyles.Integer, CultureInfo.InvariantCulture, out int id))
         {
-            using IDbCommand byId = CreateCommand($"{AccountSelect} WHERE u.ID = @id;");
+            using IDbCommand byId = CreateCommand($"{accountSelect} WHERE u.ID = @id;");
             AddParameter(byId, "@id", id);
 
             IReadOnlyList<ExportAccount> matches = ReadAccounts(byId);
@@ -185,9 +247,106 @@ internal sealed class CharacterDatabase : IDisposable
         }
 
         // 用 LOWER() 而不是 COLLATE NOCASE：后者是 SQLite 专有语法，在 MySQL 上会直接报错。
-        using IDbCommand byName = CreateCommand($"{AccountSelect} WHERE LOWER(u.Username) = LOWER(@name);");
+        using IDbCommand byName = CreateCommand($"{accountSelect} WHERE LOWER(u.Username) = LOWER(@name);");
         AddParameter(byName, "@name", target);
         return ReadAccounts(byName);
+    }
+
+    public bool CharacterExists(int accountId)
+    {
+        using IDbCommand command = CreateCommand("SELECT 1 FROM tsCharacter WHERE Account = @account;");
+        AddParameter(command, "@account", accountId);
+        return command.ExecuteScalar() is not null;
+    }
+
+    /// <summary>
+    /// 导入使用独立连接直接 upsert tsCharacter，避免依赖 TShock 的共享数据库连接或游戏主线程。
+    /// </summary>
+    public void UpsertCharacter(int accountId, PlayerData data)
+    {
+        using IDbTransaction transaction = connection.BeginTransaction();
+
+        try
+        {
+            bool exists = CharacterExists(accountId, transaction);
+            using IDbCommand command = CreateCommand(exists ? UpdateCharacterSql : InsertCharacterSql, transaction);
+            AddCharacterParameters(command, accountId, data);
+
+            int affected = command.ExecuteNonQuery();
+            if (affected <= 0)
+            {
+                throw new InvalidOperationException($"tsCharacter 写入未影响任何行：账号 {accountId}。");
+            }
+
+            transaction.Commit();
+        }
+        catch
+        {
+            TryRollback(transaction);
+            throw;
+        }
+    }
+
+    private bool CharacterExists(int accountId, IDbTransaction transaction)
+    {
+        using IDbCommand command = CreateCommand("SELECT 1 FROM tsCharacter WHERE Account = @account;", transaction);
+        AddParameter(command, "@account", accountId);
+        return command.ExecuteScalar() is not null;
+    }
+
+    private static void AddCharacterParameters(IDbCommand command, int accountId, PlayerData data)
+    {
+        AddParameter(command, "@account", accountId);
+        AddParameter(command, "@health", data.health);
+        AddParameter(command, "@maxHealth", data.maxHealth);
+        AddParameter(command, "@mana", data.mana);
+        AddParameter(command, "@maxMana", data.maxMana);
+        AddParameter(command, "@inventory", string.Join("~", data.inventory));
+        AddParameter(command, "@extraSlot", data.extraSlot);
+        AddParameter(command, "@spawnX", data.spawnX);
+        AddParameter(command, "@spawnY", data.spawnY);
+        AddParameter(command, "@skinVariant", data.skinVariant);
+        AddParameter(command, "@hair", data.hair);
+        AddParameter(command, "@hairDye", data.hairDye);
+        AddParameter(command, "@hairColor", TShock.Utils.EncodeColor(data.hairColor));
+        AddParameter(command, "@pantsColor", TShock.Utils.EncodeColor(data.pantsColor));
+        AddParameter(command, "@shirtColor", TShock.Utils.EncodeColor(data.shirtColor));
+        AddParameter(command, "@underShirtColor", TShock.Utils.EncodeColor(data.underShirtColor));
+        AddParameter(command, "@shoeColor", TShock.Utils.EncodeColor(data.shoeColor));
+        AddParameter(command, "@hideVisuals", TShock.Utils.EncodeBoolArray(data.hideVisuals));
+        AddParameter(command, "@skinColor", TShock.Utils.EncodeColor(data.skinColor));
+        AddParameter(command, "@eyeColor", TShock.Utils.EncodeColor(data.eyeColor));
+        AddParameter(command, "@questsCompleted", data.questsCompleted);
+        AddParameter(command, "@usingBiomeTorches", data.usingBiomeTorches);
+        AddParameter(command, "@happyFunTorchTime", data.happyFunTorchTime);
+        AddParameter(command, "@unlockedBiomeTorches", data.unlockedBiomeTorches);
+        AddParameter(command, "@currentLoadoutIndex", data.currentLoadoutIndex);
+        AddParameter(command, "@ateArtisanBread", data.ateArtisanBread);
+        AddParameter(command, "@usedAegisCrystal", data.usedAegisCrystal);
+        AddParameter(command, "@usedAegisFruit", data.usedAegisFruit);
+        AddParameter(command, "@usedArcaneCrystal", data.usedArcaneCrystal);
+        AddParameter(command, "@usedGalaxyPearl", data.usedGalaxyPearl);
+        AddParameter(command, "@usedGummyWorm", data.usedGummyWorm);
+        AddParameter(command, "@usedAmbrosia", data.usedAmbrosia);
+        AddParameter(command, "@unlockedSuperCart", data.unlockedSuperCart);
+        AddParameter(command, "@enabledSuperCart", data.enabledSuperCart);
+        AddParameter(command, "@deathsPVE", data.deathsPVE);
+        AddParameter(command, "@deathsPVP", data.deathsPVP);
+        AddParameter(command, "@voiceVariant", data.voiceVariant);
+        AddParameter(command, "@voicePitchOffset", data.voicePitchOffset);
+        AddParameter(command, "@team", data.team);
+    }
+
+    private static void TryRollback(IDbTransaction transaction)
+    {
+        try
+        {
+            transaction.Rollback();
+        }
+        catch
+        {
+            // 保留原始异常，回滚失败只作为二次故障忽略。
+        }
     }
 
     private static IReadOnlyList<ExportAccount> ReadAccounts(IDbCommand command)

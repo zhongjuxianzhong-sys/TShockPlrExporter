@@ -13,9 +13,9 @@
   </PropertyGroup>
 
   <PropertyGroup Label="程序集信息">
-    <Version>1.2.1</Version>
+    <Version>1.3.1</Version>
     <Authors>TShockPlrExporter Contributors</Authors>
-    <Description>将 TShock 的 SSC 人物数据导出为 Terraria .plr 文件。</Description>
+    <Description>在 TShock 的 SSC 人物数据和 Terraria .plr 文件之间导入导出。</Description>
     <RepositoryUrl>https://github.com/zhongjuxianzhong-sys/TShockPlrExporter</RepositoryUrl>
   </PropertyGroup>
 
