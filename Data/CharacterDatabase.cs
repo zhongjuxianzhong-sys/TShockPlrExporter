@@ -58,22 +58,54 @@ internal sealed class CharacterDatabase : IDisposable
 
     private static IDbConnection OpenSqlite()
     {
-        string path = Path.Combine(Path.GetFullPath(TShock.SavePath), "tshock.sqlite");
+        string connectionString = BuildSqliteConnectionString(
+            TShock.SavePath,
+            TShock.Config.Settings.SqliteConnectionString,
+            TShock.Config.Settings.SqliteDBPath);
 
-        if (!File.Exists(path))
-        {
-            throw new FileNotFoundException("未找到 TShock 的 SQLite 数据库文件。", path);
-        }
-
-        SqliteConnectionStringBuilder builder = new()
-        {
-            DataSource = path,
-            Mode = SqliteOpenMode.ReadOnly
-        };
-
-        SqliteConnection connection = new(builder.ToString());
+        SqliteConnection connection = new(connectionString);
         connection.Open();
         return connection;
+    }
+
+    internal static string BuildSqliteConnectionString(
+        string savePath,
+        string? configuredConnectionString,
+        string? configuredPath)
+    {
+        SqliteConnectionStringBuilder builder;
+
+        if (!string.IsNullOrWhiteSpace(configuredConnectionString))
+        {
+            builder = new SqliteConnectionStringBuilder(configuredConnectionString);
+            builder.DataSource = ResolveSqliteDatabasePath(
+                savePath,
+                string.IsNullOrWhiteSpace(builder.DataSource) ? configuredPath : builder.DataSource);
+        }
+        else
+        {
+            builder = new SqliteConnectionStringBuilder
+            {
+                DataSource = ResolveSqliteDatabasePath(savePath, configuredPath)
+            };
+        }
+
+        builder.Mode = SqliteOpenMode.ReadOnly;
+        return builder.ToString();
+    }
+
+    internal static string ResolveSqliteDatabasePath(string savePath, string? configuredPath)
+    {
+        string path = string.IsNullOrWhiteSpace(configuredPath) ? "tshock.sqlite" : configuredPath;
+        string fullPath = Path.GetFullPath(
+            Path.IsPathRooted(path) ? path : Path.Combine(savePath, path));
+
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException("未找到 TShock 的 SQLite 数据库文件。", fullPath);
+        }
+
+        return fullPath;
     }
 
     private static IDbConnection OpenMySql()

@@ -230,7 +230,8 @@ public sealed class Plugin : TerrariaPlugin
 
     /// <summary>
     /// 在线玩家的 SSC 数据只有在特定时机才会落库，直接读 tsCharacter 拿到的是上一次保存的旧状态。
-    /// 导出前先把这些玩家的数据写一次，否则命令会报「成功」，而文件里是过期内容。
+    /// 导出前先把这些玩家的当前 TPlayer 状态复制到 TShock 的 PlayerData 缓存并写库，
+    /// 否则命令会报「成功」，而文件里是过期内容。
     /// </summary>
     private void FlushOnlineCharacters(IReadOnlyList<ExportAccount> accounts, string traceId)
     {
@@ -264,7 +265,26 @@ public sealed class Plugin : TerrariaPlugin
 
                         try
                         {
-                            TShock.CharacterDB.InsertPlayerData(player);
+                            if (player.HasPermission(Permissions.bypassssc))
+                            {
+                                failed++;
+                                SafeLogWarn(
+                                    $"[TShockPlrExporter][{traceId}] 在线玩家 {player.Name}（ID {player.Account.ID}）" +
+                                    "启用了 tshock.ignore.ssc，跳过 SSC 落库，导出的可能是较旧的数据。");
+                                continue;
+                            }
+
+                            player.PlayerData.CopyCharacter(player);
+
+                            if (!TShock.CharacterDB.InsertPlayerData(player))
+                            {
+                                failed++;
+                                SafeLogWarn(
+                                    $"[TShockPlrExporter][{traceId}] 同步在线玩家 {player.Name}（ID {player.Account.ID}）" +
+                                    "的 SSC 数据失败：InsertPlayerData 返回 false。");
+                                continue;
+                            }
+
                             synced++;
                         }
                         catch (Exception ex)
