@@ -112,7 +112,7 @@ tshock/PlayerSscBackups
 4. 按需给管理员组添加 `plrexporter.export`、`plrexporter.import` 权限。
 5. 在服务器控制台或游戏内执行 `/player` 或 `/playerimport` 命令。
 
-启动时插件会在控制台打印一条就绪信息，说明当前使用哪条保存路径（见下文「工作原理」）。
+启动时插件会在控制台打印一条就绪信息，说明当前使用哪条保存路径。实现细节见 [`docs/architecture.md`](docs/architecture.md)。
 
 编译产物只有 `TShockPlrExporter.dll` 一个文件。TShock 服务器自带的程序集（Terraria/OTAPI、Microsoft.Data.Sqlite、MySql.Data 等）不会被复制到输出目录，避免和服务器加载的版本冲突。
 
@@ -123,6 +123,16 @@ TShockPlrExporter/
 ├── .github/
 │   └── workflows/
 │       └── build.yml            GitHub Actions 构建工作流
+├── docs/
+│   ├── README.md                工程文档入口与路由
+│   ├── architecture.md          组件边界、数据流与并发模型
+│   ├── runbooks/
+│   │   ├── ssc-operations.md    SSC 导入导出 Runbook
+│   │   ├── online-players.md    在线玩家 Runbook
+│   │   ├── database-backends.md SQLite/MySQL Runbook
+│   │   ├── backup-recovery.md   备份与恢复 Runbook
+│   │   └── main-thread-scheduling.md 主线程调度 Runbook
+│   └── decisions/               架构决策记录（ADR）
 ├── Properties/
 │   └── AssemblyInfo.cs          测试程序集访问内部类型的声明
 ├── Data/                        数据访问（namespace TShockPlrExporter.Data）
@@ -155,39 +165,18 @@ TShockPlrExporter/
 
 本地构建产物位于 `bin/Release/net9.0/TShockPlrExporter.dll`；GitHub Actions 构建后会上传同名产物 `TShockPlrExporter-Release`。
 
-## 工作原理
+## 开发者文档
 
-TShock 的 SSC 人物数据保存在数据库的 `tsCharacter` 表中。导出时，插件读取账号表 `Users` 与人物表 `tsCharacter`，将数据库中的生命、魔力、外观、背包、护甲、染料、银行、虚空袋、Loadout 等字段还原到 `Terraria.Player` 对象中，然后调用 Terraria 自带的 `.plr` 保存逻辑生成文件。
+维护者入口：
 
-导入时，插件先校验 `PlayerImports` 下的 `.plr` 文件名，使用 Terraria 原生读档逻辑加载角色，修正会导致客户端读档崩溃的异常字段，然后通过 TShock 自己的 `PlayerData` 写入路径覆盖目标账号的 `tsCharacter` 数据。
+- [`docs/README.md`](docs/README.md)：文档分层与运行手册路由。
+- [`docs/architecture.md`](docs/architecture.md)：组件边界、数据流、数据库访问、保存路径、在线玩家和并发不变量。
+- [`docs/runbooks/`](docs/runbooks/)：SSC、在线玩家、SQLite/MySQL、备份恢复和主线程调度排障流程。
+- [`docs/decisions/`](docs/decisions/)：关键架构取舍记录。
 
-### 数据库访问
+### 技术摘要
 
-插件不复用 TShock 自己的数据库连接：ADO.NET 连接不是线程安全的，而导出运行在后台线程，共用连接会与服务器自身的查询相互干扰。插件按 TShock 的配置另开一个专用读取连接，并且只发 `SELECT`。SQLite 连接以只读模式打开。在线玩家刷新落库使用的是 TShock 自己的数据库写入路径，见下文「在线玩家」。
-
-`tsCharacter` 的列在 TShock 版本之间会增减，插件按列名而不是固定序号取值，缺列时退化为默认值，并在日志里提示一次缺少哪些列。
-
-### 保存路径
-
-TShock 开启 SSC 时，Terraria 的公开保存入口 `Player.SavePlayer` 会跳过普通玩家文件保存。插件优先通过反射调用 Terraria 的内部写盘方法，绕过这个判断，**完全不改动 `Main.ServerSideCharacter`** —— 那是全服共享状态，导出期间把它置为 `false` 会让服务器其他逻辑误判 SSC 已关闭。
-
-只有在当前 Terraria 版本上找不到该内部方法、或调用后没有产出文件时，插件才会降级为回退方案：在主线程的一个极短临界区内临时关闭 `Main.ServerSideCharacter`，调用公开保存方法后立即恢复原值。降级发生时控制台会打印警告，此时建议在无人在线时导出。
-
-保存路径本身只写出 `.plr` 文件；如果导出目标中有在线玩家，插件会先刷新这些玩家的 SSC 数据库记录，见下文「在线玩家」。
-
-### 在线玩家
-
-在线玩家的 SSC 数据只有在特定时机才会落库，直接读 `tsCharacter` 拿到的是上一次保存的旧状态。导出前插件会先把本次涉及的在线玩家数据写一次库，避免命令报「成功」而文件里是过期内容。这一步失败时会记录警告并继续导出。
-
-导入时目标账号必须离线，否则在线会话稍后保存会给旧角色数据覆盖导入结果。插件会先在主线程踢出该账号的在线会话，等待会话消失并留出短暂清理时间；如果超时或玩家重新上线，导入会中止且不修改 SSC。
-
-### 导入备份与失败处理
-
-目标账号已有 `tsCharacter` 数据时，插件会先导出一份当前 SSC 到 `tshock/PlayerSscBackups`。备份失败时不会继续覆盖；导入失败时数据库保持原样。导入只修改人物数据，不会改动账号密码、权限、UUID、区域等其他内容。
-
-### 数值收敛
-
-`skinVariant`、`hair`、`team`、`currentLoadoutIndex` 这几个字段会在客户端读档时被当作数组下标使用，数据库里的异常值会直接让客户端崩在加载阶段。插件按运行时的实际上界收敛这些值，并在日志中记录被修正的账号与原值。导入时也会对生命、魔力、任务次数和死亡次数做同样的边界修正。
+TShock 的 SSC 人物数据保存在 `tsCharacter`。插件在后台线程读取或写入角色数据，只在发送在线玩家消息、同步在线 SSC、踢出导入目标或执行保存回退时回到 Terraria 主线程。覆盖已有 SSC 前会先备份；导入要求目标账号离线；导出结果会校验文件存在且非空。完整实现约束与排障流程见上面的开发者文档入口。
 
 ## 导出内容范围
 

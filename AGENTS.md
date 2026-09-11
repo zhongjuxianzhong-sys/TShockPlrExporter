@@ -55,6 +55,21 @@ dotnet test tests/TShockPlrExporter.Tests/TShockPlrExporter.Tests.csproj -c Rele
 - `Importing/`：导入路径校验、读取 `.plr`、收敛危险字段，并通过 TShock 数据结构写入 SSC。
 - `tests/`：xUnit 测试。新增纯逻辑、路径安全、数据编解码、线程队列或兼容性边界时，应补充对应测试。
 
+## 文档分层与维护
+
+- `README.md` 面向服务器管理员和普通使用者，只保留安装、命令、权限、目录、限制、导出内容范围和 FAQ；不要把深层实现细节或阶段性排障记录继续堆进 README。
+- `docs/README.md` 是工程文档入口，负责路由架构、runbook 和 ADR。
+- `docs/architecture.md` 维护组件边界、数据流、并发模型、兼容性和必须保持的安全不变量。
+- `docs/runbooks/` 按风险场景维护可执行流程。当前必须保留 SSC 导入导出、在线玩家、SQLite/MySQL、备份恢复和主线程调度这些独立 runbook。
+- `docs/decisions/` 记录关键架构决策。已接受的 ADR 不直接改写历史；调整决策时新增 ADR 并写清取代关系。
+- 每次修改行为时同步更新对应文档：
+  - 用户可见命令、权限、目录、限制或版本变化：更新 `README.md`。
+  - 数据库字段、SQLite/MySQL 配置或兼容策略变化：更新 `docs/architecture.md` 和 `docs/runbooks/database-backends.md`。
+  - 导入导出、在线玩家、备份或恢复流程变化：更新 `docs/architecture.md` 和受影响 runbook。
+  - 后台任务、主线程队列、超时或关闭行为变化：更新 `docs/runbooks/main-thread-scheduling.md`。
+  - 新的长期取舍：在 `docs/decisions/` 新增 ADR，并在相关文档中链接。
+- runbook 至少包含适用范围、前置条件、操作步骤、安全边界、验证方式和失败后的下一步。
+
 ## 并发与运行时约束
 
 - 不要在命令线程或 Terraria 主线程执行批量数据库查询、玩家构造或文件写盘；命令应调度到后台任务。
@@ -78,7 +93,7 @@ dotnet test tests/TShockPlrExporter.Tests/TShockPlrExporter.Tests.csproj -c Rele
 
 - TShock、Terraria 或数据库字段变化时，优先保持旧配置兼容并记录降级行为。
 - 插件只输出 `TShockPlrExporter.dll`。不要移除 `ExcludeAssets` / `PrivateAssets`，也不要把 TShock、Terraria、SQLite 或 MySQL 运行库复制到插件输出目录。
-- 修改导出保存路径、命令行为、目录、权限或版本号时，同步更新 `README.md`。
+- 修改导出保存路径、命令行为、目录、权限或版本号时，同步更新 `README.md` 和对应工程文档。
 - 发布新版本时，同时更新 `TShockPlrExporter.csproj` 的 `Version` 和 `Plugin.Version`，并确认启动日志中的版本一致。
 
 ## 提交与变更范围
