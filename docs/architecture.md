@@ -4,10 +4,10 @@
 
 ## 运行环境
 
-- TShock `6.1.0`
-- Terraria `1.4.5.6`
+- TShock `6.2.1`
+- Terraria `1.4.5.8`
 - .NET `9.0`
-- TShock 后端：SQLite 或 MySQL
+- TShock 后端：SQLite、MySQL 或 PostgreSQL
 
 插件通过 TShock 反射加载 `TShockPlrExporter.Plugin`。除 `Plugin` 外，其余类型均为 `internal`，并通过 `InternalsVisibleTo` 提供给单元测试项目。
 
@@ -16,7 +16,7 @@
 | 组件 | 职责 | 不应承担 |
 | --- | --- | --- |
 | `Plugin.cs` | 注册命令和权限、维护插件生命周期、限制并发任务、编排导入导出、汇总结果 | 直接实现数据库字段映射和 `.plr` 文件编解码 |
-| `Data/CharacterDatabase.cs` | 解析 SQLite/MySQL 配置、查询账号、读取 `tsCharacter`、事务写入 SSC | 依赖 TShock 的共享 ADO.NET 连接 |
+| `Data/CharacterDatabase.cs` | 解析 SQLite/MySQL/PostgreSQL 配置、查询账号、读取 `tsCharacter`、事务写入 SSC | 依赖 TShock 的共享 ADO.NET 连接 |
 | `Data/CharacterRecord.cs`、`Data/ExportAccount.cs` | 数据库行与账号的内存表示 | 处理进程级并发和文件系统操作 |
 | `Exporting/PlrExporter.cs` | 把 SSC 记录还原为 `Player`、安全命名、写 `.plr`、导出备份与轮转 | 决定命令权限或向玩家发送消息 |
 | `Exporting/MainThreadQueue.cs` | 把必须访问 Terraria/TShock 主线程状态的工作排队执行 | 执行批量数据库查询或长时间阻塞工作 |
@@ -62,9 +62,11 @@ TShock SSC 数据主要位于：
 - `Users`：账号 ID 与用户名。
 - `tsCharacter`：生命、魔力、外观、库存、Loadout、进度和死亡次数等角色数据。
 
-数据库读取按列名查找，而不是依赖固定列序号。新版本缺少旧字段时使用默认值，并只记录一次缺列警告。SQL 必须同时兼容 SQLite 与 MySQL，所有用户输入通过参数传入。
+数据库读取按列名查找，而不是依赖固定列序号。新版本缺少旧字段时使用默认值，并只记录一次缺列警告。SQL 必须同时兼容 SQLite、MySQL 与 PostgreSQL，所有用户输入通过参数传入。
 
-读取连接从 TShock 配置单独创建。SQLite 读取使用只读模式；MySQL 使用单独连接。不要把 `TShock.DB` 的共享连接传给后台任务。
+PostgreSQL 的表名由 TShock 以双引号创建（`"Users"`、`"tsCharacter"`），未加引号的同名标识符会被折叠成小写而找不到表，因此表名必须按后端引用（见 `CharacterDatabase.QuoteIdentifier`）。列名相反：TShock 建表时列名未加引号，双方都折叠为小写后匹配，读取侧仍按忽略大小写的列名字典解码。
+
+读取连接从 TShock 配置单独创建。SQLite 读取使用只读模式；MySQL 与 PostgreSQL 使用单独连接。不要把 `TShock.DB` 的共享连接传给后台任务。
 
 ## 并发模型
 

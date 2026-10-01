@@ -4,8 +4,8 @@
 
 TShockPlrExporter 是 TShock 服务器插件，用于在 TShock 的服务器端人物存档（SSC）数据和 Terraria 原生 `.plr` 文件之间导入、导出角色。主要代码面向：
 
-- TShock `6.1.0`
-- Terraria `1.4.5.6`
+- TShock `6.2.1`
+- Terraria `1.4.5.8`
 - .NET `9.0`
 
 核心类型是 `Plugin`，它注册 `/player`、`/playerimport` 命令并编排后台任务。其余类型为 `internal` 实现细节，通过 `InternalsVisibleTo` 暴露给测试项目。
@@ -60,7 +60,7 @@ dotnet test tests/TShockPlrExporter.Tests/TShockPlrExporter.Tests.csproj -c Rele
 - `README.md` 面向服务器管理员和普通使用者，只保留安装、命令、权限、目录、限制、导出内容范围和 FAQ；不要把深层实现细节或阶段性排障记录继续堆进 README。
 - `docs/README.md` 是工程文档入口，负责路由架构、runbook 和 ADR。
 - `docs/architecture.md` 维护组件边界、数据流、并发模型、兼容性和必须保持的安全不变量。
-- `docs/runbooks/` 按风险场景维护可执行流程。当前必须保留 SSC 导入导出、在线玩家、SQLite/MySQL、备份恢复和主线程调度这些独立 runbook。
+- `docs/runbooks/` 按风险场景维护可执行流程。当前必须保留 SSC 导入导出、在线玩家、数据库后端（SQLite/MySQL/PostgreSQL）、备份恢复和主线程调度这些独立 runbook。
 - `docs/decisions/` 记录关键架构决策。已接受的 ADR 不直接改写历史；调整决策时新增 ADR 并写清取代关系。
 - 每次修改行为时同步更新对应文档：
   - 用户可见命令、权限、目录、限制或版本变化：更新 `README.md`。
@@ -82,7 +82,7 @@ dotnet test tests/TShockPlrExporter.Tests/TShockPlrExporter.Tests.csproj -c Rele
 ## 数据与安全要求
 
 - 所有数据库查询使用参数，不要拼接用户输入。
-- 保持 SQLite 与 MySQL 兼容：避免 SQLite 专有 SQL 语法；读取 `tsCharacter` 时按列名取值，允许旧版本缺列后使用默认值。
+- 保持 SQLite、MySQL 与 PostgreSQL 兼容：避免某一后端的专有 SQL 语法；PostgreSQL 的表名必须按 TShock 的建表方式带双引号引用；读取 `tsCharacter` 时按列名取值，允许旧版本缺列后使用默认值。
 - 不要在日志、聊天消息或异常中包含数据库连接字符串、密码或完整内部异常；用户消息可含短 trace ID，详细内容写日志。
 - 导入参数只能是 `PlayerImports` 目录下的普通 `.plr` 文件名。继续拒绝绝对路径、子目录、路径穿越和其他扩展名。
 - 导出文件名必须清洗并限制在目标目录内；防止 Windows 保留设备名、目录穿越和账号名归一化后互相覆盖。
@@ -92,7 +92,7 @@ dotnet test tests/TShockPlrExporter.Tests/TShockPlrExporter.Tests.csproj -c Rele
 ## 兼容性注意事项
 
 - TShock、Terraria 或数据库字段变化时，优先保持旧配置兼容并记录降级行为。
-- 插件只输出 `TShockPlrExporter.dll`。不要移除 `ExcludeAssets` / `PrivateAssets`，也不要把 TShock、Terraria、SQLite 或 MySQL 运行库复制到插件输出目录。
+- 插件只输出 `TShockPlrExporter.dll`。不要移除 `ExcludeAssets` / `PrivateAssets`，也不要把 TShock、Terraria、SQLite、MySQL 或 Npgsql 运行库复制到插件输出目录。
 - 修改导出保存路径、命令行为、目录、权限或版本号时，同步更新 `README.md` 和对应工程文档。
 - 发布新版本时，同时更新 `TShockPlrExporter.csproj` 的 `Version` 和 `Plugin.Version`，并确认启动日志中的版本一致。
 

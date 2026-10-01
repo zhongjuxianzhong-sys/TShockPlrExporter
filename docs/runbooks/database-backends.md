@@ -1,8 +1,14 @@
-# SQLite/MySQL Runbook
+# SQLite/MySQL/PostgreSQL Runbook
 
 ## 适用范围
 
 用于诊断 TShock 后端的识别、连接、读取兼容性、写入失败和超时问题。
+
+## 前置条件
+
+- 服务器已至少启动过一次，目标后端中已存在 TShock 创建的 `Users` 与 `tsCharacter` 表。
+- 已确认 `tshock/config.json` 的 `StorageType` 与实际数据库一致。
+- 排查前先备份数据库；不要把含密码的连接字符串写进聊天、工单或日志。
 
 ## 后端选择
 
@@ -10,7 +16,8 @@
 
 - `StorageType` 为 `sqlite` 或空值时使用 SQLite。
 - `StorageType` 为 `mysql` 时使用 MySQL。
-- 其他非空值会提示不支持，插件目前只支持 SQLite 与 MySQL。
+- `StorageType` 为 `postgres` 时使用 PostgreSQL（需要 TShock 6.2 及以上版本）。
+- 其他非空值会提示不支持，插件目前只支持 SQLite、MySQL 与 PostgreSQL。
 
 读取 `tsCharacter` 使用独立连接；SQLite 读取连接为只读模式。导入写回使用独立读写连接和事务。
 
@@ -43,6 +50,33 @@
 | `MySqlHost 为空` | StorageType 为 MySQL，但没有可用主机配置 | 补齐连接字符串或 MySQL 主机配置 |
 | 连接超时 | 网络、DNS、防火墙或数据库负载问题 | 先用最小客户端验证连通性，再检查数据库负载 |
 | 写入影响 0 行 | 目标账号状态或事务结果异常 | 不要重复盲写；检查 `Users`、`tsCharacter` 和事务日志 |
+
+## PostgreSQL 检查
+
+1. 优先检查 `PostgresConnectionString`；为空时插件会从 `PostgresHost`（可带端口，默认 `5432`）、`PostgresDbName`、`PostgresUsername`、`PostgresPassword` 构造连接字符串。
+2. 确认 `PostgresHost` 非空；为空时插件会明确报「PostgresHost 为空」而不是抛出底层连接异常。
+3. 确认 TShock 本身可以正常读写同一数据库。PostgreSQL 后端需要 TShock 6.2 及以上版本。
+4. 表名区分大小写：TShock 用双引号建表（`"Users"`、`"tsCharacter"`）。手工核对时必须带上引号，未加引号的 `select * from tsCharacter` 会被折叠成小写并报表不存在，这不代表插件有问题。
+5. 不要在聊天、工单或日志中粘贴连接字符串，因为它可能包含数据库密码。
+
+常见结果：
+
+| 日志或现象 | 含义 | 处理 |
+| --- | --- | --- |
+| `PostgresHost 为空` | StorageType 为 postgres，但没有可用主机配置 | 补齐连接字符串或 Postgres 主机配置 |
+| 连接失败 / 认证失败 | 主机、端口、库名、账号或 `pg_hba.conf` 限制 | 先用最小客户端验证连通性，再检查数据库侧配置 |
+| `relation "tscharacter" does not exist` | 查询方漏写引号，或表不是 TShock 创建的同名表 | 用带引号的表名核对；确认 TShock 已初始化数据库 |
+| 写入影响 0 行 | 目标账号状态或事务结果异常 | 不要重复盲写；检查 `Users`、`tsCharacter` 和事务日志 |
+
+验证方式：
+
+```sql
+-- 用最小客户端（psql 等）确认表存在且大小写正确
+SELECT count(*) FROM "Users";
+SELECT count(*) FROM "tsCharacter";
+```
+
+失败后的下一步：先确认 TShock 自身在 postgres 后端下能正常保存角色（登录、退出一次再查询 `tsCharacter`），再重试插件的导出/导入；仍然失败时保留插件日志编号对应的完整异常。
 
 ## 列兼容性
 

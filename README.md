@@ -4,10 +4,10 @@ TShockPlrExporter 是一个用于 TShock 服务器的人物存档导入导出插
 
 ## 本人使用的版本
 
-- TShock: `6.1.0`
-- Terraria: `1.4.5.6` 
+- TShock: `6.2.1`
+- Terraria: `1.4.5.8`
 - 目标框架: `.NET 9.0`
-- 插件版本: `1.3.2`
+- 插件版本: `1.4.0`
 
 插件主要面向已开启服务器端人物存档（SSC）的 TShock 服务器。
 
@@ -21,7 +21,7 @@ TShockPlrExporter 是一个用于 TShock 服务器的人物存档导入导出插
 - 导入覆盖前自动把目标账号当前的 SSC 数据备份到 `tshock/PlayerSscBackups`。
 - 目标账号在线时，导入前会自动踢出该账号的在线会话，确认离线后再写入 SSC。
 - 输出 Terraria 原生 `.plr` 文件。
-- 支持 SQLite 与 MySQL 两种 TShock 存储后端，按 `tshock/config.json` 的配置自动选择。
+- 支持 SQLite、MySQL 与 PostgreSQL 三种 TShock 存储后端，按 `tshock/config.json` 的配置自动选择。
 - 导出前先把在线玩家的 SSC 数据同步落库，避免导出到过期内容。
 - 同名文件已存在时，会先改名为带毫秒时间戳的 `.plr.bak` 备份，并只保留最新的 10 份。
 - 导出完成后会检查目标文件是否存在且非空，避免误报成功。
@@ -180,7 +180,7 @@ TShock 的 SSC 人物数据保存在 `tsCharacter`。插件在后台线程读取
 
 ## 导出内容范围
 
-插件会尽量导出 TShock 6.1.0 在 `tsCharacter` 中保存的内容，包括：
+插件会尽量导出 TShock 6.2.1 在 `tsCharacter` 中保存的内容，包括：
 
 - 生命、最大生命、魔力、最大魔力
 - 背包、钱币、弹药、装备、染料、饰品
@@ -200,6 +200,7 @@ TShock 的 SSC 人物数据保存在 `tsCharacter`。插件在后台线程读取
 - 导入只会读取 `tshock/PlayerImports` 下的文件名，不提供网页上传或任意服务器路径导入。
 - 导入不会创建 TShock 账号，目标账号必须已经存在于 `Users` 表中。
 - 导出和导入只会处理人物数据及必要的在线会话；插件不会改动账号密码、权限、UUID、区域等其他内容。
+- PostgreSQL 后端需要 TShock `6.2` 及以上版本；插件按 TShock 的 `Postgres*` 配置独立连接，只读取 `Users` 与 `tsCharacter`。
 - 每个账号最多保留 10 份 `.plr.bak` 备份，更旧的会在导出时被删除。如需长期留存，请自行归档。
 - 建议执行批量导出或导入前备份整个 `tshock` 目录，尤其是数据库文件。
 
@@ -210,7 +211,7 @@ TShock 的 SSC 人物数据保存在 `tsCharacter`。插件在后台线程读取
 1.1.1 起控制台的结果消息直接写控制台和日志，不再依赖游戏主循环，正常情况下必定会出现。如果仍然只
 有开始提示，按下面的顺序排查：
 
-- 确认服务器加载的是新版本。启动信息里会打印 `[TShockPlrExporter] v1.3.2 已就绪`，看不到版本号说明
+- 确认服务器加载的是新版本。启动信息里会打印 `[TShockPlrExporter] v1.4.0 已就绪`，看不到版本号说明
   `ServerPlugins` 里还是旧 DLL。
 - 在 TShock 日志里搜索 `[TShockPlrExporter]`。汇总结果无条件写日志，导出成功、失败、异常都能在这里看到。
 - 再执行一次 `/player` 或 `/playerimport`。如果提示「已有玩家存档任务正在执行（已运行 N 秒）」，说明上一个任务还卡着，

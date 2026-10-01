@@ -17,7 +17,7 @@
 | --- | --- |
 | SSC 人物存档导入、导出和结果校验 | [`runbooks/ssc-operations.md`](runbooks/ssc-operations.md) |
 | 在线玩家导致数据过期、被踢出或导入被中止 | [`runbooks/online-players.md`](runbooks/online-players.md) |
-| SQLite/MySQL 配置、连接失败和超时 | [`runbooks/database-backends.md`](runbooks/database-backends.md) |
+| SQLite/MySQL/PostgreSQL 配置、连接失败和超时 | [`runbooks/database-backends.md`](runbooks/database-backends.md) |
 | 导出备份、导入前备份和误覆盖恢复 | [`runbooks/backup-recovery.md`](runbooks/backup-recovery.md) |
 | 主线程队列停摆、任务卡住、玩家收不到结果 | [`runbooks/main-thread-scheduling.md`](runbooks/main-thread-scheduling.md) |
 

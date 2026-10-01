@@ -7,7 +7,7 @@
 ## 前置条件
 
 - 服务器已加载正确的 `TShockPlrExporter.dll`。
-- 启动日志包含 `[TShockPlrExporter] v1.3.2 已就绪`，或与当前发布版本一致的就绪信息。
+- 启动日志包含 `[TShockPlrExporter] v1.4.0 已就绪`，或与当前发布版本一致的就绪信息。
 - 执行者拥有 `plrexporter.export` 或 `plrexporter.import` 权限。
 - 大批量操作前已备份整个 `tshock` 目录，尤其是数据库文件。
 

@@ -3,10 +3,19 @@ using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Microsoft.Xna.Framework;
 using MySql.Data.MySqlClient;
+using Npgsql;
 using Terraria;
 using TShockAPI;
 
 namespace TShockPlrExporter.Data;
+
+/// <summary>TShock 支持的存储后端。</summary>
+internal enum StorageBackend
+{
+    Sqlite,
+    MySql,
+    Postgres
+}
 
 /// <summary>
 /// 读取 TShock 的账号表与 SSC 人物表。
@@ -16,13 +25,13 @@ namespace TShockPlrExporter.Data;
 /// </summary>
 internal sealed class CharacterDatabase : IDisposable
 {
-    private const string AccountSelect = "SELECT u.ID, u.Username FROM Users u";
+    private const string AccountSelectTemplate = "SELECT u.ID, u.Username FROM {0} u";
 
-    private const string SscAccountSelect =
-        AccountSelect + " INNER JOIN tsCharacter c ON c.Account = u.ID";
+    private const string SscAccountSelectTemplate =
+        AccountSelectTemplate + " INNER JOIN {1} c ON c.Account = u.ID";
 
-    private const string InsertCharacterSql =
-        "INSERT INTO tsCharacter (Account, Health, MaxHealth, Mana, MaxMana, Inventory, extraSlot, spawnX, spawnY, " +
+    private const string InsertCharacterSqlTemplate =
+        "INSERT INTO {0} (Account, Health, MaxHealth, Mana, MaxMana, Inventory, extraSlot, spawnX, spawnY, " +
         "skinVariant, hair, hairDye, hairColor, pantsColor, shirtColor, underShirtColor, shoeColor, hideVisuals, " +
         "skinColor, eyeColor, questsCompleted, usingBiomeTorches, happyFunTorchTime, unlockedBiomeTorches, " +
         "currentLoadoutIndex, ateArtisanBread, usedAegisCrystal, usedAegisFruit, usedArcaneCrystal, usedGalaxyPearl, " +
@@ -34,8 +43,8 @@ internal sealed class CharacterDatabase : IDisposable
         "@usedArcaneCrystal, @usedGalaxyPearl, @usedGummyWorm, @usedAmbrosia, @unlockedSuperCart, @enabledSuperCart, " +
         "@deathsPVE, @deathsPVP, @voiceVariant, @voicePitchOffset, @team);";
 
-    private const string UpdateCharacterSql =
-        "UPDATE tsCharacter SET Health = @health, MaxHealth = @maxHealth, Mana = @mana, MaxMana = @maxMana, " +
+    private const string UpdateCharacterSqlTemplate =
+        "UPDATE {0} SET Health = @health, MaxHealth = @maxHealth, Mana = @mana, MaxMana = @maxMana, " +
         "Inventory = @inventory, extraSlot = @extraSlot, spawnX = @spawnX, spawnY = @spawnY, " +
         "skinVariant = @skinVariant, hair = @hair, hairDye = @hairDye, hairColor = @hairColor, " +
         "pantsColor = @pantsColor, shirtColor = @shirtColor, underShirtColor = @underShirtColor, " +
@@ -59,10 +68,24 @@ internal sealed class CharacterDatabase : IDisposable
     private static bool schemaWarningLogged;
 
     private readonly IDbConnection connection;
+    private readonly string accountSelect;
+    private readonly string sscAccountSelect;
+    private readonly string insertCharacterSql;
+    private readonly string updateCharacterSql;
+    private readonly string characterTable;
 
-    private CharacterDatabase(IDbConnection connection)
+    private CharacterDatabase(IDbConnection connection, StorageBackend backend)
     {
         this.connection = connection;
+
+        string usersTable = QuoteIdentifier("Users", backend);
+        characterTable = QuoteIdentifier("tsCharacter", backend);
+
+        accountSelect = string.Format(CultureInfo.InvariantCulture, AccountSelectTemplate, usersTable);
+        sscAccountSelect = string.Format(
+            CultureInfo.InvariantCulture, SscAccountSelectTemplate, usersTable, characterTable);
+        insertCharacterSql = string.Format(CultureInfo.InvariantCulture, InsertCharacterSqlTemplate, characterTable);
+        updateCharacterSql = string.Format(CultureInfo.InvariantCulture, UpdateCharacterSqlTemplate, characterTable);
     }
 
     public static CharacterDatabase Open()
@@ -81,15 +104,21 @@ internal sealed class CharacterDatabase : IDisposable
 
         if (storageType.Equals("mysql", StringComparison.OrdinalIgnoreCase))
         {
-            return new CharacterDatabase(OpenMySql());
+            return new CharacterDatabase(OpenMySql(), StorageBackend.MySql);
+        }
+
+        // TShock 6.2 起支持 postgres；表名在 PostgreSQL 上带双引号创建，必须按后端引用。
+        if (storageType.Equals("postgres", StringComparison.OrdinalIgnoreCase))
+        {
+            return new CharacterDatabase(OpenPostgreSql(), StorageBackend.Postgres);
         }
 
         if (storageType.Length != 0 && !storageType.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
         {
-            throw new NotSupportedException($"不支持的存储类型“{storageType}”，插件目前只支持 sqlite 与 mysql。");
+            throw new NotSupportedException($"不支持的存储类型“{storageType}”，插件目前只支持 sqlite、mysql 与 postgres。");
         }
 
-        return new CharacterDatabase(OpenSqlite(readOnly));
+        return new CharacterDatabase(OpenSqlite(readOnly), StorageBackend.Sqlite);
     }
 
     public void Dispose()
@@ -189,6 +218,66 @@ internal sealed class CharacterDatabase : IDisposable
         return builder.ToString();
     }
 
+    private static IDbConnection OpenPostgreSql()
+    {
+        string connectionString = BuildPostgresConnectionString(
+            TShock.Config.Settings.PostgresConnectionString,
+            TShock.Config.Settings.PostgresHost ?? string.Empty,
+            TShock.Config.Settings.PostgresDbName ?? string.Empty,
+            TShock.Config.Settings.PostgresUsername ?? string.Empty,
+            TShock.Config.Settings.PostgresPassword ?? string.Empty);
+
+        // 注意：任何异常信息、日志都不要带上 connectionString，里面含有数据库密码。
+        NpgsqlConnection connection = new(connectionString);
+        connection.Open();
+        return connection;
+    }
+
+    /// <summary>
+    /// 按 TShock 的规则构造 PostgreSQL 连接：优先使用完整的 PostgresConnectionString，
+    /// 否则由 PostgresHost（可带端口，默认 5432）与库名、账号、密码拼装。
+    /// </summary>
+    internal static string BuildPostgresConnectionString(
+        string? configuredConnectionString,
+        string host,
+        string database,
+        string username,
+        string password)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredConnectionString))
+        {
+            return new NpgsqlConnectionStringBuilder(configuredConnectionString).ConnectionString;
+        }
+
+        string[] hostParts = host.Split(':');
+
+        if (hostParts.Length == 0 || hostParts[0].Trim().Length == 0)
+        {
+            throw new InvalidOperationException("TShock 配置为 postgres 存储，但 PostgresHost 为空，无法连接数据库。");
+        }
+
+        NpgsqlConnectionStringBuilder builder = new()
+        {
+            Host = hostParts[0].Trim(),
+            Port = hostParts.Length > 1 && int.TryParse(hostParts[1], out int port) ? port : 5432,
+            Database = database,
+            Username = username,
+            Password = password
+        };
+
+        return builder.ConnectionString;
+    }
+
+    /// <summary>
+    /// 引用表名。TShock 在 PostgreSQL 上用双引号建表以保留大小写（例如 "tsCharacter"），
+    /// 未加引号的同名标识符会被折叠成小写从而找不到表；SQLite 与 MySQL 保持原有写法。
+    /// 列名不在此处理：TShock 建表时列名未加引号，双方都会折叠成小写后匹配。
+    /// </summary>
+    internal static string QuoteIdentifier(string identifier, StorageBackend backend)
+    {
+        return backend == StorageBackend.Postgres ? $"\"{identifier}\"" : identifier;
+    }
+
     private IDbCommand CreateCommand(string sql, IDbTransaction? transaction = null)
     {
         IDbCommand command = connection.CreateCommand();
@@ -213,13 +302,13 @@ internal sealed class CharacterDatabase : IDisposable
 
     public IReadOnlyList<ExportAccount> GetAllAccounts()
     {
-        using IDbCommand command = CreateCommand($"{SscAccountSelect} ORDER BY u.ID;");
+        using IDbCommand command = CreateCommand($"{sscAccountSelect} ORDER BY u.ID;");
         return ReadAccounts(command);
     }
 
     public IReadOnlyList<ExportAccount> FindAccounts(string target)
     {
-        return FindAccounts(target, SscAccountSelect);
+        return FindAccounts(target, sscAccountSelect);
     }
 
     /// <summary>
@@ -227,7 +316,7 @@ internal sealed class CharacterDatabase : IDisposable
     /// </summary>
     public IReadOnlyList<ExportAccount> FindImportAccounts(string target)
     {
-        return FindAccounts(target, AccountSelect);
+        return FindAccounts(target, accountSelect);
     }
 
     private IReadOnlyList<ExportAccount> FindAccounts(string target, string accountSelect)
@@ -254,7 +343,7 @@ internal sealed class CharacterDatabase : IDisposable
 
     public bool CharacterExists(int accountId)
     {
-        using IDbCommand command = CreateCommand("SELECT 1 FROM tsCharacter WHERE Account = @account;");
+        using IDbCommand command = CreateCommand($"SELECT 1 FROM {characterTable} WHERE Account = @account;");
         AddParameter(command, "@account", accountId);
         return command.ExecuteScalar() is not null;
     }
@@ -269,7 +358,7 @@ internal sealed class CharacterDatabase : IDisposable
         try
         {
             bool exists = CharacterExists(accountId, transaction);
-            using IDbCommand command = CreateCommand(exists ? UpdateCharacterSql : InsertCharacterSql, transaction);
+            using IDbCommand command = CreateCommand(exists ? updateCharacterSql : insertCharacterSql, transaction);
             AddCharacterParameters(command, accountId, data);
 
             int affected = command.ExecuteNonQuery();
@@ -289,7 +378,8 @@ internal sealed class CharacterDatabase : IDisposable
 
     private bool CharacterExists(int accountId, IDbTransaction transaction)
     {
-        using IDbCommand command = CreateCommand("SELECT 1 FROM tsCharacter WHERE Account = @account;", transaction);
+        using IDbCommand command = CreateCommand(
+            $"SELECT 1 FROM {characterTable} WHERE Account = @account;", transaction);
         AddParameter(command, "@account", accountId);
         return command.ExecuteScalar() is not null;
     }
@@ -366,7 +456,7 @@ internal sealed class CharacterDatabase : IDisposable
 
     public CharacterRecord? ReadCharacter(int accountId)
     {
-        using IDbCommand command = CreateCommand("SELECT * FROM tsCharacter WHERE Account = @account;");
+        using IDbCommand command = CreateCommand($"SELECT * FROM {characterTable} WHERE Account = @account;");
         AddParameter(command, "@account", accountId);
 
         using IDataReader reader = command.ExecuteReader();
